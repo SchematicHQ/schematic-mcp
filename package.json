@@ -1,0 +1,31 @@
+{
+  "name": "schematic-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for SchematicHQ - billing and plan management",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "tsx test-client.ts"
+  },
+  "keywords": [
+    "mcp",
+    "schematic",
+    "billing",
+    "plans"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@schematichq/schematic-typescript-node": "^1.0.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
