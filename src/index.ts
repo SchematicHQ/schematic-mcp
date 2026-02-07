@@ -67,6 +67,39 @@ function errorResponse(message: string, code?: ErrorCode): never {
   throw new McpError(code || ErrorCode.InternalError, message);
 }
 
+// Helper to check if a string is properly capitalized (Title Case)
+function isTitleCase(str: string): boolean {
+  if (!str || str.length === 0) return false;
+  // Check if first letter is uppercase and rest follows title case rules
+  const words = str.split(/\s+/);
+  return words.every(word => {
+    if (word.length === 0) return true;
+    const firstChar = word[0];
+    const rest = word.slice(1);
+    return firstChar === firstChar.toUpperCase() && rest === rest.toLowerCase();
+  });
+}
+
+// Helper to convert a string to Title Case
+function toTitleCase(str: string): string {
+  return str
+    .split(/\s+/)
+    .map(word => {
+      if (word.length === 0) return word;
+      return word[0].toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
+// Helper to generate a flag key from a feature name
+function generateFlagKey(name: string): string {
+  // Convert to lowercase and replace spaces/special chars with underscores
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
 // Register tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
@@ -259,12 +292,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "create_feature",
         description:
-          "Create a new feature flag. Optionally entitle it to a plan in the same call.",
+          "Create a new feature flag. Boolean features are simple on/off switches - the most commonly used type, ideal for enabling/disabling functionality and basic plan differentiation. Event-based features are metered against user events and track usage that typically increases over time (e.g., API calls, reports generated, database queries). Trait-based features are based on information reported to Schematic and can track usage that fluctuates up and down (e.g., user seats, projects, devices). Trait-based features must be created in the web app. Optionally entitle the feature to a plan in the same call.",
         inputSchema: {
           type: "object",
           properties: {
             name: { type: "string", description: "Feature name/key" },
-            description: { type: "string", description: "Feature description" },
+            description: { type: "string", description: "Optional: Feature description" },
+            featureType: {
+              type: "string",
+              enum: ["boolean", "event", "trait"],
+              description: "Feature type: 'boolean' (simple on/off switch, most common), 'event' (metered against events that increase over time), or 'trait' (based on information that can fluctuate - must be created in web app). Defaults to 'boolean' if not specified.",
+            },
+            eventSubtype: {
+              type: "string",
+              description: "REQUIRED for event-based features: The event subtype to associate with this feature (e.g., 'api_call', 'report_generated').",
+            },
             planId: {
               type: "string",
               description: "Optional: Plan ID to entitle this feature to",
@@ -853,6 +895,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "create_feature": {
         const name = args?.name as string;
         const description = args?.description as string;
+        const featureType = (args?.featureType as "boolean" | "event" | "trait") || "boolean";
+        const eventSubtype = args?.eventSubtype as string;
         const planId = args?.planId as string;
         const planName = args?.planName as string;
 
@@ -860,39 +904,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("Feature name is required");
         }
 
-        // Create feature
-        const featureResponse = await getSchematicClient().features.createFeature({
-          name,
-          description,
-          featureType: "boolean", // Default to boolean, can be extended
-        });
+        // Check capitalization and auto-correct to Title Case
+        const properlyCapitalized = isTitleCase(name);
+        const suggestedName = toTitleCase(name);
+        const finalName = properlyCapitalized ? name : suggestedName;
+
+        // Use empty string if description is not provided
+        const finalDescription = description || "";
+
+        // Trait-based features must be created in the web app
+        if (featureType === "trait") {
+          return textResponse(
+            "Trait-based features must be created in the Schematic web app. Please visit https://app.schematichq.com/features to create trait-based features."
+          );
+        }
+
+        // Validate event-based feature requirements
+        if (featureType === "event" && !eventSubtype) {
+          throw new Error("eventSubtype is required for event-based features");
+        }
+
+        // Build the create feature request body
+        // Note: The SDK may use 'eventName' but the API expects 'EventSubtype'
+        const createFeatureBody: {
+          name: string;
+          description: string;
+          featureType: "boolean" | "event";
+          eventName?: string;
+          eventSubtype?: string;
+        } = {
+          name: finalName,
+          description: finalDescription,
+          featureType,
+        };
+
+        if (featureType === "event" && eventSubtype) {
+          // Try both field names - SDK might use eventName, API expects EventSubtype
+          createFeatureBody.eventName = eventSubtype;
+          createFeatureBody.eventSubtype = eventSubtype;
+        }
+
+        const featureResponse = await getSchematicClient().features.createFeature(createFeatureBody);
 
         const feature = featureResponse.data;
         let result = `Created feature: ${feature.name} (${feature.id})`;
 
-        // Optionally entitle to plan
-        if (planId || planName) {
-          let targetPlanId = planId;
-
-          if (planName && !planId) {
-            const plansResponse = await getSchematicClient().plans.listPlans({});
-            const plans = plansResponse.data || [];
-            const foundPlan = plans.find((p) => p.name === planName);
-            if (!foundPlan) {
-              throw new Error(`Plan "${planName}" not found`);
-            }
-            targetPlanId = foundPlan.id;
-          }
-
-          // Add to plan as boolean entitlement (default)
-          await getSchematicClient().entitlements.createPlanEntitlement({
-            planId: targetPlanId,
+        // Create a flag for the feature
+        try {
+          const flagKey = generateFlagKey(feature.name);
+          const flagResponse = await getSchematicClient().features.createFlag({
+            key: flagKey,
+            name: feature.name,
+            description: finalDescription || `Flag for ${feature.name}`,
+            flagType: "boolean",
+            defaultValue: false,
             featureId: feature.id,
-            valueType: "boolean",
-            valueBool: true,
           });
 
-          result += `\nEntitled to plan: ${planName || targetPlanId}`;
+          const flag = flagResponse.data;
+          result += `\nCreated flag: ${flag.name} (key: ${flag.key})`;
+        } catch (flagError: unknown) {
+          const flagErrorMessage = flagError instanceof Error ? flagError.message : "Unknown error";
+          result += `\n⚠️  Warning: Feature created but flag creation failed: ${flagErrorMessage}`;
+        }
+
+        // Add capitalization suggestion if the name was changed
+        if (!properlyCapitalized && name !== finalName) {
+          result += `\n💡 Note: Feature name was capitalized from "${name}" to "${finalName}"`;
         }
 
         return textResponse(result);
