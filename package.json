@@ -36,6 +36,7 @@
     "type": "git",
     "url": "https://github.com/schematichq/schematic-mcp.git"
   },
+  "mcpName": "io.github.schematichq/schematic-mcp",
   "homepage": "https://github.com/schematichq/schematic-mcp#readme",
   "bugs": {
     "url": "https://github.com/schematichq/schematic-mcp/issues"

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.schematichq/schematic-mcp",
+  "title": "Schematic",
+  "description": "Manage companies, plans, features, and billing through SchematicHQ",
+  "websiteUrl": "https://schematichq.com",
+  "repository": {
+    "url": "https://github.com/SchematicHQ/schematic-mcp",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@schematichq/schematic-mcp",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SCHEMATIC_API_KEY",
+          "description": "Your Schematic API key",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
