@@ -5,12 +5,38 @@
 import { SchematicClient, Schematic } from "@schematichq/schematic-typescript-node";
 
 type CompanyDetailResponseData = Schematic.CompanyDetailResponseData;
+type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
+type PlanDetailResponseData = Schematic.PlanDetailResponseData;
+
+const PAGE_SIZE = 100;
+
+/**
+ * Fetches all pages from a paginated Schematic list endpoint.
+ */
+export async function fetchAll<TItem>(
+  listFn: (params: Record<string, unknown>) => Promise<{ data: TItem[] }>,
+  baseParams: Record<string, unknown>
+): Promise<TItem[]> {
+  const allItems: TItem[] = [];
+  let offset = 0;
+
+  while (true) {
+    const response = await listFn({ ...baseParams, limit: PAGE_SIZE, offset });
+    const items = response.data || [];
+    allItems.push(...items);
+    if (items.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  return allItems;
+}
 
 export interface CompanyIdentifier {
   companyId?: string;
   companyName?: string;
   stripeCustomerId?: string;
-  internalAppId?: string;
+  keyName?: string;
+  keyValue?: string;
 }
 
 /**
@@ -38,10 +64,10 @@ export async function resolveCompany(
 
   // Company name search
   if (identifier.companyName) {
-    const response = await client.companies.listCompanies({
-      q: identifier.companyName,
-    });
-    const companies = response.data || [];
+    const companies = await fetchAll(
+      (params) => client.companies.listCompanies(params),
+      { q: identifier.companyName }
+    );
     if (companies.length === 0) {
       throw new Error(`No company found with name "${identifier.companyName}"`);
     }
@@ -54,36 +80,89 @@ export async function resolveCompany(
     return companies[0];
   }
 
-  // Internal app ID lookup
-  if (identifier.internalAppId) {
-    // First, we need to find a company that has this in their keys
-    // List companies and check keys, then use lookup
-    const response = await client.companies.listCompanies({});
-    const companies = response.data || [];
-    
-    for (const company of companies) {
-      if (company.keys && Array.isArray(company.keys)) {
-        // Check if any key value matches the internal app ID
-        for (const keyDetail of company.keys) {
-          if (keyDetail.value === identifier.internalAppId) {
-            // Found it! Now use lookup with this key
-            const lookupResponse = await client.companies.lookupCompany({
-              keys: {
-                [keyDetail.key]: identifier.internalAppId,
-              },
-            });
-            return lookupResponse.data;
-          }
-        }
-      }
+  // Custom key lookup
+  if (identifier.keyName || identifier.keyValue) {
+    if (!identifier.keyName || !identifier.keyValue) {
+      throw new Error(
+        "Both keyName and keyValue are required for custom key lookup. " +
+        "Key names are configured in Schematic - see https://docs.schematichq.com/developer_resources/key_management"
+      );
     }
-    
-    throw new Error(
-      `No company found with internal app ID "${identifier.internalAppId}"`
-    );
+    const response = await client.companies.lookupCompany({
+      keys: {
+        [identifier.keyName]: identifier.keyValue,
+      },
+    });
+    return response.data;
   }
 
   throw new Error("No valid company identifier provided");
+}
+
+export interface FeatureIdentifier {
+  featureId?: string;
+  featureName?: string;
+}
+
+/**
+ * Resolves a feature by ID or name (matches on name or flag key)
+ */
+export async function resolveFeature(
+  client: SchematicClient,
+  identifier: FeatureIdentifier
+): Promise<FeatureDetailResponseData> {
+  if (identifier.featureId) {
+    const response = await client.features.getFeature(identifier.featureId);
+    return response.data;
+  }
+
+  if (identifier.featureName) {
+    const features = await fetchAll(
+      (params) => client.features.listFeatures(params),
+      {}
+    );
+    const feature = features.find(
+      (f) => f.name === identifier.featureName || f.flags?.[0]?.key === identifier.featureName
+    );
+    if (!feature) {
+      throw new Error(`Feature "${identifier.featureName}" not found`);
+    }
+    return feature;
+  }
+
+  throw new Error("Either featureId or featureName is required");
+}
+
+export interface PlanIdentifier {
+  planId?: string;
+  planName?: string;
+}
+
+/**
+ * Resolves a plan by ID or name
+ */
+export async function resolvePlan(
+  client: SchematicClient,
+  identifier: PlanIdentifier
+): Promise<PlanDetailResponseData> {
+  if (identifier.planId) {
+    const response = await client.plans.getPlan(identifier.planId);
+    return response.data;
+  }
+
+  if (identifier.planName) {
+    const plans = await fetchAll(
+      (params) => client.plans.listPlans(params),
+      {}
+    );
+    const plan = plans.find((p) => p.name === identifier.planName);
+    if (!plan) {
+      throw new Error(`Plan "${identifier.planName}" not found`);
+    }
+    return plan;
+  }
+
+  throw new Error("Either planId or planName is required");
 }
 
 /**

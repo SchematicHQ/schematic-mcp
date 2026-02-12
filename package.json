@@ -1,27 +1,51 @@
 {
-  "name": "schematic-mcp-server",
+  "name": "@schematichq/schematic-mcp",
   "version": "1.0.0",
-  "description": "MCP server for SchematicHQ - billing and plan management",
+  "description": "MCP server for SchematicHQ - manage companies, plans, features, and billing from any MCP client",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "schematic-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "tsx test-client.ts"
+    "test": "tsx test-client.ts",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "schematic",
+    "schematichq",
     "billing",
-    "plans"
+    "plans",
+    "features",
+    "entitlements",
+    "feature-flags"
   ],
-  "author": "",
+  "author": "SchematicHQ <support@schematichq.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/schematichq/schematic-mcp.git"
+  },
+  "homepage": "https://github.com/schematichq/schematic-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/schematichq/schematic-mcp/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@schematichq/schematic-typescript-node": "^1.0.0",
-    "zod": "^3.22.4"
+    "@schematichq/schematic-typescript-node": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

@@ -15,16 +15,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { SchematicClient, Schematic } from "@schematichq/schematic-typescript-node";
 
-type PlanDetailResponseData = Schematic.PlanDetailResponseData;
 type CompanyDetailResponseData = Schematic.CompanyDetailResponseData;
 type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
 type CompanyOverrideResponseData = Schematic.CompanyOverrideResponseData;
 type CreateCompanyOverrideRequestBody = Schematic.CreateCompanyOverrideRequestBody;
 type CreatePlanEntitlementRequestBody = Schematic.CreatePlanEntitlementRequestBody;
 
-import { z } from "zod";
 import { getApiKey } from "./config.js";
-import { resolveCompany, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
+import { resolveCompany, resolveFeature, resolvePlan, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
 
 // Initialize Schematic client lazily
 let schematicClient: SchematicClient | null = null;
@@ -62,11 +60,6 @@ function textResponse(text: string) {
   };
 }
 
-// Helper to format error responses
-function errorResponse(message: string, code?: ErrorCode): never {
-  throw new McpError(code || ErrorCode.InternalError, message);
-}
-
 // Helper to check if a string is properly capitalized (Title Case)
 function isTitleCase(str: string): boolean {
   if (!str || str.length === 0) return false;
@@ -91,6 +84,43 @@ function toTitleCase(str: string): string {
     .join(' ');
 }
 
+// Helper to format an override value for display
+function formatOverrideValue(override: CompanyOverrideResponseData): string {
+  if (override.valueType === "unlimited") return "unlimited";
+  if (override.valueBool !== undefined) return override.valueBool ? "on" : "off";
+  if (override.valueNumeric !== undefined) return String(override.valueNumeric);
+  return "unknown";
+}
+
+// Helper to safely extract a string argument from tool args
+function stringArg(args: Record<string, unknown> | undefined, key: string): string | undefined {
+  const val = args?.[key];
+  if (val === undefined || val === null) return undefined;
+  if (typeof val !== "string") {
+    throw new Error(`Expected "${key}" to be a string, got ${typeof val}`);
+  }
+  return val;
+}
+
+// Helper to safely extract a required string argument from tool args
+function requiredStringArg(args: Record<string, unknown> | undefined, key: string): string {
+  const val = stringArg(args, key);
+  if (!val) {
+    throw new Error(`"${key}" is required`);
+  }
+  return val;
+}
+
+// Helper to safely extract an array argument from tool args
+function arrayArg<T>(args: Record<string, unknown> | undefined, key: string): T[] | undefined {
+  const val = args?.[key];
+  if (val === undefined || val === null) return undefined;
+  if (!Array.isArray(val)) {
+    throw new Error(`Expected "${key}" to be an array, got ${typeof val}`);
+  }
+  return val as T[];
+}
+
 // Helper to generate a flag key from a feature name
 function generateFlagKey(name: string): string {
   // Convert to lowercase and replace spaces/special chars with underscores
@@ -108,7 +138,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "get_company",
         description:
-          "Get company information by ID, name, Stripe customer ID, or internal app ID. Returns company details including plan, trial status, and links.",
+          "Get company information by ID, name, Stripe customer ID, or custom key. Returns company details including plan, trial status, and links. For custom key lookups, the user must provide both keyName and keyValue. Key names are configured in Schematic - see https://docs.schematichq.com/developer_resources/key_management for details.",
         inputSchema: {
           type: "object",
           properties: {
@@ -124,9 +154,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Stripe customer ID",
             },
-            internalAppId: {
+            keyName: {
               type: "string",
-              description: "Internal application ID (will search company keys)",
+              description: "Custom key name to look up the company by (e.g., 'app_id'). Must be used with keyValue. See https://docs.schematichq.com/developer_resources/key_management",
+            },
+            keyValue: {
+              type: "string",
+              description: "Custom key value to look up the company by. Must be used with keyName.",
             },
           },
         },
@@ -140,7 +174,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             companyId: { type: "string" },
             companyName: { type: "string" },
             stripeCustomerId: { type: "string" },
-            internalAppId: { type: "string" },
+            keyName: { type: "string", description: "Custom key name for company lookup (requires keyValue)" },
+            keyValue: { type: "string", description: "Custom key value for company lookup (requires keyName)" },
           },
         },
       },
@@ -153,7 +188,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             companyId: { type: "string" },
             companyName: { type: "string" },
             stripeCustomerId: { type: "string" },
-            internalAppId: { type: "string" },
+            keyName: { type: "string", description: "Custom key name for company lookup (requires keyValue)" },
+            keyValue: { type: "string", description: "Custom key value for company lookup (requires keyName)" },
           },
         },
       },
@@ -331,10 +367,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case "get_company": {
         const company = await resolveCompany(getSchematicClient(), {
-          companyId: args?.companyId as string,
-          companyName: args?.companyName as string,
-          stripeCustomerId: args?.stripeCustomerId as string,
-          internalAppId: args?.internalAppId as string,
+          companyId: stringArg(args, "companyId"),
+          companyName: stringArg(args, "companyName"),
+          stripeCustomerId: stringArg(args, "stripeCustomerId"),
+          keyName: stringArg(args, "keyName"),
+          keyValue: stringArg(args, "keyValue"),
         });
 
         // Helper function to format trial end date (Unix timestamp in seconds)
@@ -373,10 +410,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "get_company_plan": {
         const company = await resolveCompany(getSchematicClient(), {
-          companyId: args?.companyId as string,
-          companyName: args?.companyName as string,
-          stripeCustomerId: args?.stripeCustomerId as string,
-          internalAppId: args?.internalAppId as string,
+          companyId: stringArg(args, "companyId"),
+          companyName: stringArg(args, "companyName"),
+          stripeCustomerId: stringArg(args, "stripeCustomerId"),
+          keyName: stringArg(args, "keyName"),
+          keyValue: stringArg(args, "keyValue"),
         });
 
         if (!company.plan?.id) {
@@ -394,10 +432,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "get_company_trial_info": {
         const company = await resolveCompany(getSchematicClient(), {
-          companyId: args?.companyId as string,
-          companyName: args?.companyName as string,
-          stripeCustomerId: args?.stripeCustomerId as string,
-          internalAppId: args?.internalAppId as string,
+          companyId: stringArg(args, "companyId"),
+          companyName: stringArg(args, "companyName"),
+          stripeCustomerId: stringArg(args, "stripeCustomerId"),
+          keyName: stringArg(args, "keyName"),
+          keyValue: stringArg(args, "keyValue"),
         });
 
         const trialEnd = company.billingSubscription?.trialEnd;
@@ -425,38 +464,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "count_companies_on_plan": {
-        const planId = args?.planId as string;
-        const planName = args?.planName as string;
-
-        let plan: PlanDetailResponseData;
-
-        if (planName && !planId) {
-          // Find plan by name
-          const plansResponse = await getSchematicClient().plans.listPlans({});
-          const plans = plansResponse.data || [];
-          const foundPlan = plans.find((p) => p.name === planName);
-          if (!foundPlan) {
-            throw new Error(`Plan "${planName}" not found`);
-          }
-          plan = foundPlan;
-        } else if (planId) {
-          // Get plan by ID
-          const planResponse = await getSchematicClient().plans.getPlan(planId);
-          plan = planResponse.data;
-        } else {
-          throw new Error("Either planId or planName is required");
-        }
+        const plan = await resolvePlan(getSchematicClient(), {
+          planId: stringArg(args, "planId"),
+          planName: stringArg(args, "planName"),
+        });
 
         const count = plan.companyCount || 0;
 
         return textResponse(
-          `${count} compan${count !== 1 ? "ies" : "y"} ${count !== 1 ? "are" : "is"} on plan ${planName || plan.name || planId}`
+          `${count} compan${count !== 1 ? "ies" : "y"} ${count !== 1 ? "are" : "is"} on plan ${plan.name || plan.id}`
         );
       }
 
       case "link_stripe_to_schematic": {
-        const stripeCustomerId = args?.stripeCustomerId as string;
-        const companyId = args?.companyId as string;
+        const stripeCustomerId = stringArg(args, "stripeCustomerId");
+        const companyId = stringArg(args, "companyId");
 
         if (stripeCustomerId) {
           const company = await resolveCompany(getSchematicClient(), {
@@ -497,10 +519,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "list_company_overrides": {
-        const companyId = args?.companyId as string;
-        const companyName = args?.companyName as string;
-        const featureName = args?.featureName as string;
-        const featureId = args?.featureId as string;
+        const companyId = stringArg(args, "companyId");
+        const companyName = stringArg(args, "companyName");
+        const featureName = stringArg(args, "featureName");
+        const featureId = stringArg(args, "featureId");
 
         // Build filter parameters
         const filterParams: {
@@ -522,19 +544,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Resolve feature if filtering by feature
-        let targetFeatureId = featureId;
-        if (featureName && !featureId) {
-          const featuresResponse = await getSchematicClient().features.listFeatures({});
-          const features = featuresResponse.data || [];
-          const feature = features.find((f) => f.name === featureName || f.flags?.[0]?.key === featureName);
-          if (!feature) {
-            throw new Error(`Feature "${featureName}" not found`);
-          }
-          targetFeatureId = feature.id;
-        }
-
-        if (targetFeatureId) {
-          filterParams.featureId = targetFeatureId;
+        let resolvedFeature: FeatureDetailResponseData | undefined;
+        if (featureName || featureId) {
+          resolvedFeature = await resolveFeature(getSchematicClient(), { featureId, featureName });
+          filterParams.featureId = resolvedFeature.id;
         }
 
         // Must filter by either company or feature
@@ -551,66 +564,41 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return textResponse(
               `Company ${company.name || company.id} has no overrides.`
             );
-          } else if (targetFeatureId) {
+          } else if (resolvedFeature) {
             return textResponse(
-              `No companies have an override for feature ${featureName || targetFeatureId}.`
+              `No companies have an override for feature ${resolvedFeature.name || resolvedFeature.id}.`
             );
           }
           return textResponse("No overrides found.");
-        }
-
-        // Fetch all features to get names (create a map for quick lookup)
-        const featuresResponse = await getSchematicClient().features.listFeatures({});
-        const features = featuresResponse.data || [];
-        const featureMap = new Map<string, FeatureDetailResponseData>();
-        for (const feature of features) {
-          featureMap.set(feature.id, feature);
-        }
-
-        // Get the feature name if filtering by feature
-        let targetFeatureName: string | undefined;
-        if (targetFeatureId) {
-          const targetFeature = featureMap.get(targetFeatureId);
-          targetFeatureName = targetFeature?.name || featureName;
         }
 
         // Format the response
         const results: string[] = [];
 
         if (company) {
-          // Listing all overrides for a company
+          // Listing all overrides for a company - fetch feature names for display
+          const features = await fetchAll(
+            (params) => getSchematicClient().features.listFeatures(params),
+            {}
+          );
+          const featureMap = new Map<string, FeatureDetailResponseData>();
+          for (const feature of features) {
+            featureMap.set(feature.id, feature);
+          }
+
           results.push(`Company ${company.name || company.id} has ${overrides.length} override${overrides.length !== 1 ? "s" : ""}:`);
           for (const override of overrides) {
-            let overrideValue: string;
-            if (override.valueType === "unlimited") {
-              overrideValue = "unlimited";
-            } else if (override.valueBool !== undefined) {
-              overrideValue = override.valueBool ? "on" : "off";
-            } else if (override.valueNumeric !== undefined) {
-              overrideValue = String(override.valueNumeric);
-            } else {
-              overrideValue = "unknown";
-            }
             const feature = featureMap.get(override.featureId);
             const featureDisplayName = feature?.name || override.featureId;
-            results.push(`  - ${featureDisplayName} (${override.featureId}): ${overrideValue}`);
+            results.push(`  - ${featureDisplayName} (${override.featureId}): ${formatOverrideValue(override)}`);
           }
         } else {
           // Listing all companies with override for a feature
-          results.push(`${overrides.length} compan${overrides.length !== 1 ? "ies have" : "y has"} an override for feature ${targetFeatureName || targetFeatureId}:`);
+          const displayName = resolvedFeature?.name || resolvedFeature?.id;
+          results.push(`${overrides.length} compan${overrides.length !== 1 ? "ies have" : "y has"} an override for feature ${displayName}:`);
           for (const override of overrides) {
-            let overrideValue: string;
-            if (override.valueType === "unlimited") {
-              overrideValue = "unlimited";
-            } else if (override.valueBool !== undefined) {
-              overrideValue = override.valueBool ? "on" : "off";
-            } else if (override.valueNumeric !== undefined) {
-              overrideValue = String(override.valueNumeric);
-            } else {
-              overrideValue = "unknown";
-            }
             const companyName = override.company?.name || override.companyId;
-            results.push(`  - ${companyName}: ${overrideValue}`);
+            results.push(`  - ${companyName}: ${formatOverrideValue(override)}`);
           }
         }
 
@@ -619,60 +607,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "set_company_override": {
         const company = await resolveCompany(getSchematicClient(), {
-          companyId: args?.companyId as string,
-          companyName: args?.companyName as string,
+          companyId: stringArg(args, "companyId"),
+          companyName: stringArg(args, "companyName"),
         });
 
-        const featureName = args?.featureName as string;
-        const featureId = args?.featureId as string;
-        const value = args?.value as string;
+        const featureName = stringArg(args, "featureName");
+        const featureId = stringArg(args, "featureId");
+        const value = stringArg(args, "value");
 
         if (!value || value.trim() === "") {
           throw new Error("Value is required. Please provide a value: 'on' or 'off' for boolean features, a number for event-based/trait-based features, or 'unlimited' for unlimited quota.");
         }
 
-        let targetFeatureId = featureId;
-
-        if (featureName && !featureId) {
-          // Find feature by name
-          const featuresResponse = await getSchematicClient().features.listFeatures({});
-          const features = featuresResponse.data || [];
-          const feature = features.find((f) => f.name === featureName || f.flags?.[0]?.key === featureName);
-          if (!feature) {
-            throw new Error(`Feature "${featureName}" not found`);
-          }
-          targetFeatureId = feature.id;
-        }
-
-        if (!targetFeatureId) {
-          throw new Error("Either featureId or featureName is required");
-        }
-
-        // Get feature details to determine type
-        const featureResponse = await getSchematicClient().features.getFeature(targetFeatureId);
-        const feature = featureResponse.data;
+        const feature = await resolveFeature(getSchematicClient(), { featureId, featureName });
         const featureType = feature.featureType;
 
         // Determine value type based on feature type and value
         let requestBody: CreateCompanyOverrideRequestBody = {
           companyId: company.id,
-          featureId: targetFeatureId,
+          featureId: feature.id,
           valueType: "boolean",
         };
-        
+
         if (value === "on" || value === "off" || value === "true" || value === "false") {
           requestBody.valueType = "boolean";
           requestBody.valueBool = value === "on" || value === "true";
         } else if (value === "unlimited") {
           requestBody.valueType = "unlimited";
         } else if (!isNaN(Number(value))) {
-          // For numeric values, support both event-based and trait-based features
-          // Both use "numeric" as valueType (not "trait" override type)
           if (featureType === "event" || featureType === "trait") {
             requestBody.valueType = "numeric";
             requestBody.valueNumeric = Number(value);
           } else {
-            throw new Error(`Cannot set numeric override for feature "${featureName || targetFeatureId}". Numeric overrides are only supported for event-based or trait-based features. This feature is of type "${featureType}".`);
+            throw new Error(`Cannot set numeric override for feature "${feature.name || feature.id}". Numeric overrides are only supported for event-based or trait-based features. This feature is of type "${featureType}".`);
           }
         } else {
           // Default to boolean true
@@ -684,64 +651,48 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         await getSchematicClient().entitlements.createCompanyOverride(requestBody);
 
         return textResponse(
-          `Set override for company ${company.name || company.id}, feature ${featureName || targetFeatureId}: ${value}`
+          `Set override for company ${company.name || company.id}, feature ${feature.name || feature.id}: ${value}`
         );
       }
 
       case "remove_company_override": {
         const company = await resolveCompany(getSchematicClient(), {
-          companyId: args?.companyId as string,
-          companyName: args?.companyName as string,
+          companyId: stringArg(args, "companyId"),
+          companyName: stringArg(args, "companyName"),
         });
 
-        const featureName = args?.featureName as string;
-        const featureId = args?.featureId as string;
-
-        let targetFeatureId = featureId;
-
-        if (featureName && !featureId) {
-          // Find feature by name
-          const featuresResponse = await getSchematicClient().features.listFeatures({});
-          const features = featuresResponse.data || [];
-          const feature = features.find((f) => f.name === featureName || f.flags?.[0]?.key === featureName);
-          if (!feature) {
-            throw new Error(`Feature "${featureName}" not found`);
-          }
-          targetFeatureId = feature.id;
-        }
-
-        if (!targetFeatureId) {
-          throw new Error("Either featureId or featureName is required");
-        }
+        const feature = await resolveFeature(getSchematicClient(), {
+          featureId: stringArg(args, "featureId"),
+          featureName: stringArg(args, "featureName"),
+        });
 
         // Find the override for this company and feature
         const overridesResponse = await getSchematicClient().entitlements.listCompanyOverrides({
           companyId: company.id,
-          featureId: targetFeatureId,
+          featureId: feature.id,
           limit: 1,
         });
         const overrides = overridesResponse.data || [];
 
         if (overrides.length === 0) {
           return textResponse(
-            `No override found for company ${company.name || company.id} on feature ${featureName || targetFeatureId}.`
+            `No override found for company ${company.name || company.id} on feature ${feature.name || feature.id}.`
           );
         }
 
-        const override = overrides[0];
-        const overrideId = override.id;
-
         // Delete the override
-        await getSchematicClient().entitlements.deleteCompanyOverride(overrideId);
+        await getSchematicClient().entitlements.deleteCompanyOverride(overrides[0].id);
 
         return textResponse(
-          `Removed override for company ${company.name || company.id} on feature ${featureName || targetFeatureId}.`
+          `Removed override for company ${company.name || company.id} on feature ${feature.name || feature.id}.`
         );
       }
 
       case "list_plans": {
-        const plansResponse = await getSchematicClient().plans.listPlans({});
-        const plans = plansResponse.data || [];
+        const plans = await fetchAll(
+          (params) => getSchematicClient().plans.listPlans(params),
+          {}
+        );
 
         if (plans.length === 0) {
           return textResponse("No plans found.");
@@ -755,16 +706,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "create_plan": {
-        const name = args?.name as string;
-        const description = args?.description as string;
-
-        if (!name) {
-          throw new Error("Plan name is required");
-        }
+        const name = requiredStringArg(args, "name");
+        const description = stringArg(args, "description");
 
         const planResponse = await getSchematicClient().plans.createPlan({
           name,
-          description,
+          description: description || "",
           planType: "plan",
         });
 
@@ -774,31 +721,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "add_entitlements_to_plan": {
-        const planId = args?.planId as string;
-        const planName = args?.planName as string;
-        const entitlements = args?.entitlements as Array<{
+        const planId = stringArg(args, "planId");
+        const planName = stringArg(args, "planName");
+        const entitlements = arrayArg<{
           featureId?: string;
           featureName?: string;
           type?: "boolean" | "trait" | "event";
           value?: string;
-        }>;
+        }>(args, "entitlements");
 
-        let targetPlanId = planId;
-
-        if (planName && !planId) {
-          // Find plan by name
-          const plansResponse = await getSchematicClient().plans.listPlans({});
-          const plans = plansResponse.data || [];
-          const plan = plans.find((p) => p.name === planName);
-          if (!plan) {
-            throw new Error(`Plan "${planName}" not found`);
-          }
-          targetPlanId = plan.id;
-        }
-
-        if (!targetPlanId) {
-          throw new Error("Either planId or planName is required");
-        }
+        const plan = await resolvePlan(getSchematicClient(), {
+          planId,
+          planName,
+        });
 
         if (!entitlements || entitlements.length === 0) {
           throw new Error("At least one entitlement is required");
@@ -807,76 +742,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const results: string[] = [];
 
         for (const entitlement of entitlements) {
-          const featureName = entitlement.featureName;
-          const featureId = entitlement.featureId;
-          let targetFeatureId = featureId;
-
-          if (featureName && !featureId) {
-            // Find feature by name
-            const featuresResponse = await getSchematicClient().features.listFeatures({});
-            const features = featuresResponse.data || [];
-            const feature = features.find(
-              (f) => f.name === featureName || f.flags?.[0]?.key === featureName
-            );
-            if (!feature) {
-              throw new Error(`Feature "${featureName}" not found`);
-            }
-            targetFeatureId = feature.id;
-          }
-
-          if (!targetFeatureId) {
-            throw new Error("Either featureId or featureName is required for each entitlement");
-          }
-
-          // Get feature details to determine type
-          const featureResponse = await getSchematicClient().features.getFeature(targetFeatureId);
-          const feature = featureResponse.data;
+          const feature = await resolveFeature(getSchematicClient(), {
+            featureId: entitlement.featureId,
+            featureName: entitlement.featureName,
+          });
           const featureType = feature.featureType;
+          const featureDisplay = feature.name || feature.id;
 
           // Prepare entitlement request body
           const entitlementBody: CreatePlanEntitlementRequestBody = {
-            planId: targetPlanId,
-            featureId: targetFeatureId,
+            planId: plan.id,
+            featureId: feature.id,
             valueType: "boolean",
           };
 
           if (featureType === "boolean") {
-            // For boolean features, default to "on" (true) if no value provided
             const value = entitlement.value || "on";
             entitlementBody.valueType = "boolean";
             entitlementBody.valueBool = value === "on" || value === "true";
           } else if (featureType === "event" || featureType === "trait") {
-            // For event/trait features, value is required
             if (!entitlement.value) {
-              throw new Error(`Value is required for ${featureType}-based feature "${featureName || targetFeatureId}". Please provide a number (e.g., "10", "100") or "unlimited".`);
+              throw new Error(`Value is required for ${featureType}-based feature "${featureDisplay}". Please provide a number (e.g., "10", "100") or "unlimited".`);
             }
 
             if (entitlement.value === "unlimited") {
               entitlementBody.valueType = "unlimited";
             } else if (!isNaN(Number(entitlement.value))) {
-              // Both event and trait features use "numeric" for numeric values
               entitlementBody.valueType = "numeric";
               entitlementBody.valueNumeric = Number(entitlement.value);
             } else {
-              throw new Error(`Invalid value "${entitlement.value}" for ${featureType}-based feature "${featureName || targetFeatureId}". Must be a number or "unlimited".`);
+              throw new Error(`Invalid value "${entitlement.value}" for ${featureType}-based feature "${featureDisplay}". Must be a number or "unlimited".`);
             }
           } else {
-            throw new Error(`Unsupported feature type "${featureType}" for feature "${featureName || targetFeatureId}".`);
+            throw new Error(`Unsupported feature type "${featureType}" for feature "${featureDisplay}".`);
           }
 
-          // Create plan entitlement
           await getSchematicClient().entitlements.createPlanEntitlement(entitlementBody);
 
           const valueDisplay = entitlement.value || (featureType === "boolean" ? "on" : "not provided");
-          results.push(`Added ${featureType} entitlement for feature ${featureName || targetFeatureId}: ${valueDisplay}`);
+          results.push(`Added ${featureType} entitlement for feature ${featureDisplay}: ${valueDisplay}`);
         }
 
         return textResponse(results.join("\n"));
       }
 
       case "list_features": {
-        const featuresResponse = await getSchematicClient().features.listFeatures({});
-        const features = featuresResponse.data || [];
+        const features = await fetchAll(
+          (params) => getSchematicClient().features.listFeatures(params),
+          {}
+        );
 
         if (features.length === 0) {
           return textResponse("No features found.");
@@ -893,16 +807,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "create_feature": {
-        const name = args?.name as string;
-        const description = args?.description as string;
-        const featureType = (args?.featureType as "boolean" | "event" | "trait") || "boolean";
-        const eventSubtype = args?.eventSubtype as string;
-        const planId = args?.planId as string;
-        const planName = args?.planName as string;
-
-        if (!name) {
-          throw new Error("Feature name is required");
+        const name = requiredStringArg(args, "name");
+        const description = stringArg(args, "description");
+        const featureTypeArg = stringArg(args, "featureType");
+        if (featureTypeArg && !["boolean", "event", "trait"].includes(featureTypeArg)) {
+          throw new Error(`Invalid featureType "${featureTypeArg}". Must be "boolean", "event", or "trait".`);
         }
+        const featureType = (featureTypeArg as "boolean" | "event" | "trait") || "boolean";
+        const eventSubtype = stringArg(args, "eventSubtype");
+        const planId = stringArg(args, "planId");
+        const planName = stringArg(args, "planName");
 
         // Check capitalization and auto-correct to Title Case
         const properlyCapitalized = isTitleCase(name);
@@ -925,12 +839,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Build the create feature request body
-        // Note: The SDK may use 'eventName' but the API expects 'EventSubtype'
         const createFeatureBody: {
           name: string;
           description: string;
           featureType: "boolean" | "event";
-          eventName?: string;
           eventSubtype?: string;
         } = {
           name: finalName,
@@ -939,8 +851,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
 
         if (featureType === "event" && eventSubtype) {
-          // Try both field names - SDK might use eventName, API expects EventSubtype
-          createFeatureBody.eventName = eventSubtype;
           createFeatureBody.eventSubtype = eventSubtype;
         }
 
