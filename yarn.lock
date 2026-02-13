@@ -283,6 +283,7 @@ __metadata:
     "@modelcontextprotocol/sdk": "npm:^1.0.0"
     "@schematichq/schematic-typescript-node": "npm:^1.0.0"
     "@types/node": "npm:^20.10.0"
+    dotenv: "npm:^17.3.1"
     tsx: "npm:^4.7.0"
     typescript: "npm:^5.3.3"
   bin:
@@ -545,6 +546,13 @@ __metadata:
   version: 2.0.0
   resolution: "depd@npm:2.0.0"
   checksum: 10c0/58bd06ec20e19529b06f7ad07ddab60e504d9e0faca4bd23079fac2d279c3594334d736508dc350e06e510aba5e22e4594483b3a6562ce7c17dd797f4cc4ad2c
+  languageName: node
+  linkType: hard
+
+"dotenv@npm:^17.3.1":
+  version: 17.3.1
+  resolution: "dotenv@npm:17.3.1"
+  checksum: 10c0/c78e0c2d5a549c751e544cc60e2b95e7cb67e0c551f42e094d161c6b297aa44b630a3c2dcacf5569e529a6c2a6b84e2ab9be8d37b299d425df5a18b81ce4a35f
   languageName: node
   linkType: hard
 

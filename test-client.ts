@@ -5,6 +5,10 @@
  * This validates that the server responds correctly to MCP protocol messages
  */
 
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config(); // also load .env as fallback
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { join } from "path";
