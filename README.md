@@ -6,7 +6,29 @@ Use this server to let Claude, Cursor, or any MCP-compatible client look up comp
 
 ## Quick Start
 
-### Claude Desktop / Claude Code
+### Prerequisites
+
+1. **Get your Schematic API key**: Sign up for a [Schematic account](https://schematichq.com) and get your API key from the [Schematic dashboard](https://app.schematichq.com).
+
+### Installation
+
+#### Option 1: Using Claude CLI (Recommended)
+
+1. Install the package from npm:
+   ```bash
+   npm i @schematichq/schematic-mcp
+   ```
+
+2. Add the MCP server to Claude:
+   ```bash
+   claude mcp add --transport stdio --scope project schematic --env SCHEMATIC_API_KEY=your-api-key-here -- npx @schematichq/schematic-mcp
+   ```
+
+   Replace `your-api-key-here` with your actual Schematic API key.
+
+#### Option 2: Manual Configuration
+
+##### Claude Desktop / Claude Code
 
 Add to your Claude config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
@@ -26,11 +48,27 @@ Add to your Claude config (`~/Library/Application Support/Claude/claude_desktop_
 
 ### Cursor
 
-Add the same configuration to Cursor's MCP config:
+Add to your Cursor MCP config (Settings > MCP Servers, or edit the file directly):
 
-- **macOS**: `~/Library/Application Support/Cursor/User/globalStorage/mcp.json`
-- **Linux**: `~/.config/Cursor/User/globalStorage/mcp.json`
-- **Windows**: `%APPDATA%\Cursor\User\globalStorage\mcp.json`
+- **macOS**: `~/.cursor/mcp.json`
+- **Linux**: `~/.cursor/mcp.json`
+- **Windows**: `%USERPROFILE%\.cursor\mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "schematic": {
+      "command": "npx",
+      "args": ["-y", "@schematichq/schematic-mcp"],
+      "env": {
+        "SCHEMATIC_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+After adding the config, restart Cursor for the server to be picked up.
 
 ## Configuration
 
@@ -97,16 +135,16 @@ Once configured, try asking your AI assistant:
 
 ```bash
 # Install dependencies
-npm install
+yarn install
 
 # Build
-npm run build
+yarn build
 
 # Run in development mode (auto-recompile on changes)
-npm run dev
+yarn dev
 
 # Run tests
-npm test
+yarn test
 ```
 
 ## License
