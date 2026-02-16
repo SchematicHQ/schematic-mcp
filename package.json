@@ -1,5 +1,5 @@
 {
-  "name": "@SchematicHQ/schematic-mcp",
+  "name": "@schematichq/schematic-mcp",
   "version": "0.3.0",
   "description": "MCP server for SchematicHQ - manage companies, plans, features, and billing from any MCP client",
   "type": "module",
