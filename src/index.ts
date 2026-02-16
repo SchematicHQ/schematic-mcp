@@ -316,6 +316,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["entitlements"],
         },
       },
+      {
+        name: "get_plan_entitlements",
+        description: "Get all features/entitlements included in a plan. Shows what features a plan grants and their values (on/off for boolean, numeric limits for metered, unlimited).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            planId: { type: "string", description: "Plan ID (e.g., plan_xxx)" },
+            planName: { type: "string", description: "Plan name" },
+          },
+        },
+      },
       // Feature Management
       {
         name: "list_features",
@@ -686,6 +697,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return textResponse(
           `Removed override for company ${company.name || company.id} on feature ${feature.name || feature.id}.`
         );
+      }
+
+      case "get_plan_entitlements": {
+        const plan = await resolvePlan(getSchematicClient(), {
+          planId: stringArg(args, "planId"),
+          planName: stringArg(args, "planName"),
+        });
+
+        const entitlements = await fetchAll(
+          (params) => getSchematicClient().entitlements.listPlanEntitlements(params),
+          { planId: plan.id }
+        );
+
+        if (entitlements.length === 0) {
+          return textResponse(`Plan ${plan.name || plan.id} has no entitlements.`);
+        }
+
+        const results: string[] = [`Plan ${plan.name} (${plan.id}) has ${entitlements.length} entitlement${entitlements.length !== 1 ? "s" : ""}:`];
+
+        for (const entitlement of entitlements) {
+          const featureName = entitlement.feature?.name || entitlement.featureId;
+          const featureType = entitlement.feature?.featureType || "unknown";
+          let valueDisplay: string;
+
+          if (entitlement.valueType === "unlimited") {
+            valueDisplay = "unlimited";
+          } else if (entitlement.valueBool !== undefined) {
+            valueDisplay = entitlement.valueBool ? "on" : "off";
+          } else if (entitlement.valueNumeric !== undefined) {
+            valueDisplay = String(entitlement.valueNumeric);
+          } else {
+            valueDisplay = "unknown";
+          }
+
+          results.push(`  - ${featureName} (${featureType}): ${valueDisplay}`);
+        }
+
+        return textResponse(results.join("\n"));
       }
 
       case "list_plans": {
