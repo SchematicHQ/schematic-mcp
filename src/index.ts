@@ -327,6 +327,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      // Feature Usage
+      {
+        name: "get_feature_usage",
+        description:
+          "Get feature usage data for a company. Shows access status, usage vs allocation, and entitlement source for each feature. Optionally filter to a specific feature by providing featureId. If you only know the feature name, use list_features first to find the feature ID, then pass it here as featureId.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            companyId: { type: "string", description: "Schematic company ID" },
+            companyName: { type: "string", description: "Company name to search for" },
+            featureId: { type: "string", description: "Optional: filter to a specific feature by ID. Use list_features to find the ID if you only have a name." },
+          },
+        },
+      },
       // Feature Management
       {
         name: "list_features",
@@ -732,6 +746,87 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
 
           results.push(`  - ${featureName} (${featureType}): ${valueDisplay}`);
+        }
+
+        return textResponse(results.join("\n"));
+      }
+
+      case "get_feature_usage": {
+        const companyId = stringArg(args, "companyId");
+        const companyName = stringArg(args, "companyName");
+        const featureId = stringArg(args, "featureId");
+
+        if (!companyId && !companyName) {
+          throw new Error("companyId or companyName is required");
+        }
+
+        // Resolve company
+        const company = await resolveCompany(getSchematicClient(), { companyId, companyName });
+        const companyDisplay = company.name || company.id;
+
+        // Optionally look up feature name for display
+        let featureDisplay: string | undefined;
+        if (featureId) {
+          const feature = await resolveFeature(getSchematicClient(), { featureId });
+          featureDisplay = feature.name || feature.id;
+        }
+
+        // Build company keys for the lookup
+        const companyKeys: Record<string, string> = {};
+        for (const k of company.keys) {
+          companyKeys[k.key] = k.value;
+        }
+
+        // Fetch all feature usage for this company (no pagination needed)
+        const usageResponse = await getSchematicClient().entitlements.getFeatureUsageByCompany({ keys: companyKeys });
+        let usageItems = usageResponse.data.features || [];
+
+        // Filter to specific feature if requested
+        if (featureId) {
+          usageItems = usageItems.filter((item) => item.feature?.id === featureId);
+        }
+
+        if (usageItems.length === 0) {
+          const context = featureDisplay
+            ? `feature ${featureDisplay} at company ${companyDisplay}`
+            : `company ${companyDisplay}`;
+          return textResponse(`No feature usage data found for ${context}.`);
+        }
+
+        // Format output
+        const results: string[] = [];
+        if (featureDisplay) {
+          results.push(`Feature usage for ${featureDisplay} at ${companyDisplay}:`);
+        } else {
+          results.push(`Feature usage for company ${companyDisplay} (${usageItems.length} feature${usageItems.length !== 1 ? "s" : ""}):`);
+        }
+
+        for (const item of usageItems) {
+          const fname = item.feature?.name || "Unknown feature";
+          const ftype = item.feature?.featureType || "unknown";
+          const accessStr = item.access ? "allowed" : "denied";
+          const source = item.entitlementSource || "unknown";
+
+          const lines: string[] = [];
+          lines.push(`  - ${fname} (${ftype}) — ${accessStr}`);
+
+          if (ftype === "boolean") {
+            lines.push(`    Source: ${source}`);
+          } else {
+            // Metered feature (event or trait)
+            const usageVal = item.usage ?? 0;
+            const allocationStr = item.isUnlimited ? "unlimited" : String(item.allocation ?? 0);
+            const usageDisplay = item.isUnlimited
+              ? `${usageVal} used (unlimited)`
+              : `${usageVal} / ${allocationStr}`;
+            lines.push(`    Usage: ${usageDisplay}`);
+            if (!item.isUnlimited && item.percentUsed !== undefined) {
+              lines.push(`    Percent used: ${Math.round(item.percentUsed)}%`);
+            }
+            lines.push(`    Source: ${source}`);
+          }
+
+          results.push(lines.join("\n"));
         }
 
         return textResponse(results.join("\n"));
