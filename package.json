@@ -1,6 +1,6 @@
 {
   "name": "@schematichq/schematic-mcp",
-  "version": "0.2.0",
+  "version": "0.3.4",
   "description": "MCP server for SchematicHQ - manage companies, plans, features, and billing from any MCP client",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,7 @@
     "type": "git",
     "url": "https://github.com/schematichq/schematic-mcp.git"
   },
-  "mcpName": "io.github.schematichq/schematic-mcp",
+  "mcpName": "io.github.SchematicHQ/schematic-mcp",
   "homepage": "https://github.com/schematichq/schematic-mcp#readme",
   "bugs": {
     "url": "https://github.com/schematichq/schematic-mcp/issues"
@@ -47,7 +47,7 @@
     "@schematichq/schematic-typescript-node": "^1.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.10.0",
+    "@types/node": "^25.2.3",
     "dotenv": "^17.3.1",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"

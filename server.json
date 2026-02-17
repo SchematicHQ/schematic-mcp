@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.schematichq/schematic-mcp",
+  "name": "io.github.SchematicHQ/schematic-mcp",
   "title": "Schematic",
   "description": "Manage companies, plans, features, and billing through SchematicHQ",
   "websiteUrl": "https://schematichq.com",
@@ -8,12 +8,12 @@
     "url": "https://github.com/SchematicHQ/schematic-mcp",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.3.4",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@schematichq/schematic-mcp",
-      "version": "0.2.0",
+      "version": "0.3.4",
       "transport": {
         "type": "stdio"
       },
