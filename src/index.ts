@@ -5,6 +5,7 @@
  * Provides tools for managing companies, plans, features, and billing
  */
 
+import { createRequire } from "module";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -14,6 +15,9 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { SchematicClient, Schematic } from "@schematichq/schematic-typescript-node";
+
+const _require = createRequire(import.meta.url);
+const { version: mcpVersion } = _require("../package.json") as { version: string };
 
 type CompanyDetailResponseData = Schematic.CompanyDetailResponseData;
 type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
@@ -26,11 +30,17 @@ import { resolveCompany, resolveFeature, resolvePlan, fetchAll, getSchematicComp
 
 // Initialize Schematic client lazily
 let schematicClient: SchematicClient | null = null;
+let currentToolName = "unknown";
 
 function getSchematicClient(): SchematicClient {
   if (!schematicClient) {
     const apiKey = getApiKey();
-    schematicClient = new SchematicClient({ apiKey });
+    const headers: Record<string, string> = {};
+    Object.defineProperty(headers, "User-Agent", {
+      get: () => `schematic-mcp/${mcpVersion} tool/${currentToolName}`,
+      enumerable: true,
+    });
+    schematicClient = new SchematicClient({ apiKey, headers });
   }
   return schematicClient;
 }
@@ -387,6 +397,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  currentToolName = name;
 
   try {
     switch (name) {
