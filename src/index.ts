@@ -5,7 +5,6 @@
  * Provides tools for managing companies, plans, features, and billing
  */
 
-import { createRequire } from "module";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -15,9 +14,7 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { SchematicClient, Schematic } from "@schematichq/schematic-typescript-node";
-
-const _require = createRequire(import.meta.url);
-const { version: mcpVersion } = _require("../package.json") as { version: string };
+import { version as mcpVersion } from "./version.js";
 
 type CompanyDetailResponseData = Schematic.CompanyDetailResponseData;
 type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
