@@ -813,13 +813,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const fname = item.feature?.name || "Unknown feature";
           const ftype = item.feature?.featureType || "unknown";
           const accessStr = item.access ? "allowed" : "denied";
-          const source = item.entitlementSource || "unknown";
-
-          const lines: string[] = [];
-          lines.push(`  - ${fname} (${ftype}) — ${accessStr}`);
 
           if (ftype === "boolean") {
-            lines.push(`    Source: ${source}`);
+            results.push(`  - ${fname} (${ftype}) — ${accessStr}`);
           } else {
             // Metered feature (event or trait)
             const usageVal = item.usage ?? 0;
@@ -827,14 +823,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const usageDisplay = item.isUnlimited
               ? `${usageVal} used (unlimited)`
               : `${usageVal} / ${allocationStr}`;
-            lines.push(`    Usage: ${usageDisplay}`);
-            if (!item.isUnlimited && item.percentUsed !== undefined) {
-              lines.push(`    Percent used: ${Math.round(item.percentUsed)}%`);
-            }
-            lines.push(`    Source: ${source}`);
+            results.push(`  - ${fname} (${ftype}) — ${accessStr}, usage: ${usageDisplay}`);
           }
-
-          results.push(lines.join("\n"));
         }
 
         return textResponse(results.join("\n"));
