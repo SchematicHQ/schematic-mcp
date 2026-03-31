@@ -205,6 +205,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "list_companies_on_plan",
+        description: "List all companies that are on a specific plan",
+        inputSchema: {
+          type: "object",
+          properties: {
+            planId: { type: "string", description: "Plan ID (e.g., plan_xxx)" },
+            planName: { type: "string", description: "Plan name" },
+          },
+        },
+      },
+      {
         name: "link_stripe_to_schematic",
         description:
           "Find the Schematic company for a Stripe customer ID, or vice versa. Returns both IDs and links to both platforms.",
@@ -341,6 +352,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             keyValue: { type: "string", description: "Custom key value for company lookup (requires keyName)" },
             planId: { type: "string", description: "ID of the plan to assign (e.g., plan_xxx)" },
             planName: { type: "string", description: "Name of the plan to assign" },
+            interval: { type: "string", enum: ["month", "year"], description: "Billing interval: 'month' (default) or 'year'" },
           },
         },
       },
@@ -1051,17 +1063,95 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           planName: stringArg(args, "planName"),
         });
 
+        const interval = stringArg(args, "interval");
+
+        const checkoutData = await getSchematicClient().checkout.getCheckoutData({
+          companyId: company.id,
+          selectedPlanId: plan.id,
+        });
+
+        const selectedPlan = checkoutData.data.selectedPlan;
+        if (!selectedPlan) {
+          throw new McpError(ErrorCode.InternalError, `No pricing data found for plan ${plan.name || plan.id}`);
+        }
+
+        const availablePrices = [
+          selectedPlan.monthlyPrice ? { interval: "month", price: selectedPlan.monthlyPrice } : null,
+          selectedPlan.yearlyPrice ? { interval: "year", price: selectedPlan.yearlyPrice } : null,
+        ].filter((p): p is { interval: string; price: NonNullable<typeof selectedPlan.monthlyPrice> } => p !== null);
+
+        if (availablePrices.length === 0) {
+          throw new McpError(ErrorCode.InternalError, `No prices configured for plan ${plan.name || plan.id}`);
+        }
+
+        let selectedPrice: typeof availablePrices[0];
+        if (interval) {
+          const match = availablePrices.find((p) => p.interval === interval);
+          if (!match) {
+            const available = availablePrices.map((p) => p.interval).join(", ");
+            throw new McpError(
+              ErrorCode.InternalError,
+              `No ${interval}ly price found for plan ${plan.name || plan.id}. Available intervals: ${available}`
+            );
+          }
+          selectedPrice = match;
+        } else if (availablePrices.length === 1) {
+          selectedPrice = availablePrices[0];
+        } else {
+          const rows = availablePrices.map((p) => ({
+            interval: p.interval === "month" ? "Monthly" : "Yearly",
+            price: `$${(p.price.price / 100).toFixed(2)}`,
+            value: p.interval,
+          }));
+          const colWidths = {
+            interval: Math.max(8, ...rows.map((r) => r.interval.length)),
+            price: Math.max(5, ...rows.map((r) => r.price.length)),
+          };
+          const header = `| ${"Interval".padEnd(colWidths.interval)} | ${"Price".padEnd(colWidths.price)} |`;
+          const divider = `| ${"-".repeat(colWidths.interval)} | ${"-".repeat(colWidths.price)} |`;
+          const tableRows = rows.map((r) => `| ${r.interval.padEnd(colWidths.interval)} | ${r.price.padEnd(colWidths.price)} |`);
+          const table = [header, divider, ...tableRows].join("\n");
+          return textResponse(
+            `Plan "${plan.name}" has multiple pricing options:\n\n${table}\n\nWhich would you like? Re-run with interval set to ${rows.map((r) => `"${r.value}"`).join(" or ")}.`
+          );
+        }
+
         await getSchematicClient().checkout.managePlan({
           companyId: company.id,
           basePlanId: plan.id,
+          basePlanPriceId: selectedPrice.price.id,
           addOnSelections: [],
           creditBundles: [],
           payInAdvanceEntitlements: [],
         });
 
         return textResponse(
-          `Changed plan for ${company.name || company.id} to ${plan.name} (${plan.id}).\n` +
+          `Changed plan for ${company.name || company.id} to ${plan.name} (${plan.id}) with ${selectedPrice.interval}ly billing.\n` +
           `View company: ${getSchematicCompanyUrl(company.id)}`
+        );
+      }
+
+      case "list_companies_on_plan": {
+        const plan = await resolvePlan(getSchematicClient(), {
+          planId: stringArg(args, "planId"),
+          planName: stringArg(args, "planName"),
+        });
+
+        const companies = await fetchAll(
+          (params) => getSchematicClient().companies.listCompanies(params),
+          { planId: plan.id }
+        );
+
+        if (companies.length === 0) {
+          return textResponse(`No companies are on plan ${plan.name || plan.id}.`);
+        }
+
+        const companyList = companies
+          .map((c) => `- ${c.name || c.id} (${c.id})`)
+          .join("\n");
+
+        return textResponse(
+          `${companies.length} compan${companies.length !== 1 ? "ies" : "y"} on plan ${plan.name} (${plan.id}):\n${companyList}`
         );
       }
 
