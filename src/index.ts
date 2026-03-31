@@ -341,6 +341,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "find_companies_near_limit",
+        description:
+          "Scan a list of companies and find any that are at or above a usage threshold for any metered feature. Useful for proactive outreach to companies approaching their plan limits. Returns results grouped by feature, sorted by percent used.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            companyIds: {
+              type: "array",
+              items: { type: "string" },
+              description: "List of Schematic company IDs to scan (e.g., ['comp_xxx', 'comp_yyy'])",
+            },
+            threshold: {
+              type: "number",
+              description: "Usage percentage threshold (0-100). Companies at or above this percentage are included. Defaults to 70.",
+            },
+            featureId: {
+              type: "string",
+              description: "Optional: limit the scan to a specific feature by ID. If omitted, all metered features are checked.",
+            },
+          },
+          required: ["companyIds"],
+        },
+      },
       // Feature Management
       {
         name: "list_features",
@@ -805,9 +829,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const fname = item.feature?.name || "Unknown feature";
           const ftype = item.feature?.featureType || "unknown";
           const accessStr = item.access ? "allowed" : "denied";
+          const source = item.entitlementSource || "unknown";
+
+          const lines: string[] = [];
+          lines.push(`  - ${fname} (${ftype}) — ${accessStr}`);
 
           if (ftype === "boolean") {
-            results.push(`  - ${fname} (${ftype}) — ${accessStr}`);
+            lines.push(`    Source: ${source}`);
           } else {
             // Metered feature (event or trait)
             const usageVal = item.usage ?? 0;
@@ -815,8 +843,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const usageDisplay = item.isUnlimited
               ? `${usageVal} used (unlimited)`
               : `${usageVal} / ${allocationStr}`;
-            results.push(`  - ${fname} (${ftype}) — ${accessStr}, usage: ${usageDisplay}`);
+            lines.push(`    Usage: ${usageDisplay}`);
+            if (!item.isUnlimited && item.percentUsed !== undefined) {
+              lines.push(`    Percent used: ${Math.round(item.percentUsed)}%`);
+            }
+            lines.push(`    Source: ${source}`);
           }
+
+          results.push(lines.join("\n"));
         }
 
         return textResponse(results.join("\n"));
@@ -1018,6 +1052,111 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         return textResponse(result);
+      }
+
+      case "find_companies_near_limit": {
+        const companyIds = arrayArg<string>(args, "companyIds");
+        if (!companyIds || companyIds.length === 0) {
+          throw new Error("companyIds is required and must not be empty");
+        }
+
+        const thresholdArg = args?.["threshold"];
+        const threshold = (typeof thresholdArg === "number" ? thresholdArg : 70);
+        const featureId = stringArg(args, "featureId");
+
+        interface NearLimitResult {
+          companyId: string;
+          companyName: string;
+          featureName: string;
+          featureId: string;
+          usage: number;
+          allocation: number;
+          percentUsed: number;
+        }
+
+        const allResults: NearLimitResult[] = [];
+        const errors: { companyId: string; error: string }[] = [];
+
+        // Process with concurrency limit of 10
+        const CONCURRENCY = 10;
+        let idx = 0;
+
+        async function worker() {
+          while (idx < companyIds!.length) {
+            const cid = companyIds![idx++];
+            try {
+              const companyResp = await getSchematicClient().companies.getCompany(cid);
+              const company = companyResp.data;
+
+              const companyKeys: Record<string, string> = {};
+              for (const k of company.keys) {
+                companyKeys[k.key] = k.value;
+              }
+
+              if (Object.keys(companyKeys).length === 0) continue;
+
+              const usageResp = await getSchematicClient().entitlements.getFeatureUsageByCompany({ keys: companyKeys });
+              let features = usageResp.data.features ?? [];
+
+              if (featureId) {
+                features = features.filter((f) => f.feature?.id === featureId);
+              }
+
+              for (const item of features) {
+                if (item.isUnlimited || item.percentUsed === undefined || item.percentUsed === null) continue;
+                if (item.percentUsed >= threshold) {
+                  allResults.push({
+                    companyId: company.id,
+                    companyName: company.name ?? company.id,
+                    featureName: item.feature?.name ?? "Unknown",
+                    featureId: item.feature?.id ?? "unknown",
+                    usage: item.usage ?? 0,
+                    allocation: item.allocation ?? 0,
+                    percentUsed: item.percentUsed,
+                  });
+                }
+              }
+            } catch (err: unknown) {
+              errors.push({ companyId: cid, error: err instanceof Error ? err.message : String(err) });
+            }
+          }
+        }
+
+        await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+        allResults.sort((a, b) => b.percentUsed - a.percentUsed);
+
+        if (allResults.length === 0) {
+          const errNote = errors.length > 0 ? ` (${errors.length} companies could not be checked)` : "";
+          return textResponse(`No features at or above ${threshold}% usage found across ${companyIds.length} companies${errNote}.`);
+        }
+
+        // Group by feature
+        const byFeature = new Map<string, NearLimitResult[]>();
+        for (const r of allResults) {
+          if (!byFeature.has(r.featureName)) byFeature.set(r.featureName, []);
+          byFeature.get(r.featureName)!.push(r);
+        }
+
+        const lines: string[] = [
+          `Found ${allResults.length} feature usage(s) at or above ${threshold}% across ${companyIds.length} companies:\n`,
+        ];
+
+        for (const [fname, rows] of byFeature) {
+          lines.push(`Feature: ${fname} (${rows[0].featureId}) — ${rows.length} company/companies`);
+          for (const r of rows) {
+            const pct = Math.round(r.percentUsed);
+            lines.push(`  ${pct}%  ${r.usage}/${r.allocation}  ${r.companyName} (${r.companyId})`);
+            lines.push(`       ${getSchematicCompanyUrl(r.companyId)}`);
+          }
+          lines.push("");
+        }
+
+        if (errors.length > 0) {
+          lines.push(`${errors.length} company/companies could not be checked (lookup failed).`);
+        }
+
+        return textResponse(lines.join("\n"));
       }
 
       default:
