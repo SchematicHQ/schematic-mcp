@@ -327,6 +327,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "change_company_plan",
+        description:
+          "Change the plan a company is on. This is a billing operation — it updates the company's subscription to the specified plan. Use list_plans to see available plans.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            companyId: { type: "string", description: "Schematic company ID (e.g., comp_xxx)" },
+            companyName: { type: "string", description: "Company name to search for" },
+            stripeCustomerId: { type: "string", description: "Stripe customer ID" },
+            keyName: { type: "string", description: "Custom key name for company lookup (requires keyValue)" },
+            keyValue: { type: "string", description: "Custom key value for company lookup (requires keyName)" },
+            planId: { type: "string", description: "ID of the plan to assign (e.g., plan_xxx)" },
+            planName: { type: "string", description: "Name of the plan to assign" },
+          },
+        },
+      },
       // Feature Usage
       {
         name: "get_feature_usage",
@@ -1018,6 +1035,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         return textResponse(result);
+      }
+
+      case "change_company_plan": {
+        const company = await resolveCompany(getSchematicClient(), {
+          companyId: stringArg(args, "companyId"),
+          companyName: stringArg(args, "companyName"),
+          stripeCustomerId: stringArg(args, "stripeCustomerId"),
+          keyName: stringArg(args, "keyName"),
+          keyValue: stringArg(args, "keyValue"),
+        });
+
+        const plan = await resolvePlan(getSchematicClient(), {
+          planId: stringArg(args, "planId"),
+          planName: stringArg(args, "planName"),
+        });
+
+        await getSchematicClient().checkout.managePlan({
+          companyId: company.id,
+          basePlanId: plan.id,
+          addOnSelections: [],
+          creditBundles: [],
+          payInAdvanceEntitlements: [],
+        });
+
+        return textResponse(
+          `Changed plan for ${company.name || company.id} to ${plan.name} (${plan.id}).\n` +
+          `View company: ${getSchematicCompanyUrl(company.id)}`
+        );
       }
 
       default:
