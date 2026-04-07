@@ -60,30 +60,6 @@ function textResponse(text: string) {
   };
 }
 
-// Helper to check if a string is properly capitalized (Title Case)
-function isTitleCase(str: string): boolean {
-  if (!str || str.length === 0) return false;
-  // Check if first letter is uppercase and rest follows title case rules
-  const words = str.split(/\s+/);
-  return words.every(word => {
-    if (word.length === 0) return true;
-    const firstChar = word[0];
-    const rest = word.slice(1);
-    return firstChar === firstChar.toUpperCase() && rest === rest.toLowerCase();
-  });
-}
-
-// Helper to convert a string to Title Case
-function toTitleCase(str: string): string {
-  return str
-    .split(/\s+/)
-    .map(word => {
-      if (word.length === 0) return word;
-      return word[0].toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(' ');
-}
-
 // Helper to format an override value for display
 function formatOverrideValue(override: CompanyOverrideResponseData): string {
   if (override.valueType === "unlimited") return "unlimited";
@@ -952,10 +928,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const planId = stringArg(args, "planId");
         const planName = stringArg(args, "planName");
 
-        // Check capitalization and auto-correct to Title Case
-        const properlyCapitalized = isTitleCase(name);
-        const suggestedName = toTitleCase(name);
-        const finalName = properlyCapitalized ? name : suggestedName;
+        // If the name is all lowercase, ask the user whether to capitalize or keep as-is
+        if (name === name.toLowerCase()) {
+          const titleCased = name
+            .split(/\s+/)
+            .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
+            .join(" ");
+          return textResponse(
+            `The feature name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
+          );
+        }
 
         // Use empty string if description is not provided
         const finalDescription = description || "";
@@ -979,7 +961,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           featureType: "boolean" | "event";
           eventSubtype?: string;
         } = {
-          name: finalName,
+          name,
           description: finalDescription,
           featureType,
         };
@@ -1010,11 +992,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } catch (flagError: unknown) {
           const flagErrorMessage = flagError instanceof Error ? flagError.message : "Unknown error";
           result += `\n⚠️  Warning: Feature created but flag creation failed: ${flagErrorMessage}`;
-        }
-
-        // Add capitalization suggestion if the name was changed
-        if (!properlyCapitalized && name !== finalName) {
-          result += `\n💡 Note: Feature name was capitalized from "${name}" to "${finalName}"`;
         }
 
         return textResponse(result);
