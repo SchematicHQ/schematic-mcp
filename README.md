@@ -8,7 +8,7 @@ Use this server to let Claude, Cursor, or any MCP-compatible client look up comp
 
 ### Prerequisites
 
-1. **Get your Schematic API key**: Sign up for a [Schematic account](https://schematichq.com) and get your API key from the [Schematic dashboard](https://app.schematichq.com).
+1. **Get your Schematic secret API key**: Sign up for a [Schematic account](https://schematichq.com) and get your **secret** API key from the [Schematic dashboard](https://app.schematichq.com). Note: use your secret API key, not the publishable key.
 
 ### Installation
 
@@ -21,10 +21,10 @@ Use this server to let Claude, Cursor, or any MCP-compatible client look up comp
 
 2. Add the MCP server to Claude:
    ```bash
-   claude mcp add --transport stdio --scope project schematic --env SCHEMATIC_API_KEY=your-api-key-here -- npx @schematichq/schematic-mcp
+   claude mcp add --transport stdio --scope project schematic --env SCHEMATIC_API_KEY=your-secret-api-key-here -- npx @schematichq/schematic-mcp
    ```
 
-   Replace `your-api-key-here` with your actual Schematic API key.
+   Replace `your-secret-api-key-here` with your actual Schematic API key.
 
 #### Option 2: Manual Configuration
 
@@ -39,7 +39,7 @@ Add to your Claude config (`~/Library/Application Support/Claude/claude_desktop_
       "command": "npx",
       "args": ["-y", "@schematichq/schematic-mcp"],
       "env": {
-        "SCHEMATIC_API_KEY": "your-api-key-here"
+        "SCHEMATIC_API_KEY": "your-secret-api-key-here"
       }
     }
   }
@@ -61,7 +61,7 @@ Add to your Cursor MCP config (Settings > MCP Servers, or edit the file directly
       "command": "npx",
       "args": ["-y", "@schematichq/schematic-mcp"],
       "env": {
-        "SCHEMATIC_API_KEY": "your-api-key-here"
+        "SCHEMATIC_API_KEY": "your-secret-api-key-here"
       }
     }
   }
@@ -72,18 +72,18 @@ After adding the config, restart Cursor for the server to be picked up.
 
 ## Configuration
 
-The server needs a Schematic API key. It checks two sources in order:
+The server needs a Schematic **secret** API key (not the publishable key). It checks two sources in order:
 
 1. **Environment variable** (recommended): `SCHEMATIC_API_KEY`
 2. **Config file** (fallback): `~/.schematic-mcp/config.json`
 
 ```json
 {
-  "apiKey": "your-api-key-here"
+  "apiKey": "your-secret-api-key-here"
 }
 ```
 
-You can find your API key in the [Schematic dashboard](https://app.schematichq.com).
+You can find your secret API key in the [Schematic dashboard](https://app.schematichq.com).
 
 ## Tools
 
