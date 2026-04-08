@@ -341,7 +341,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "change_company_plan",
         description:
-          "Change the plan a company is on. This is a billing operation — it updates the company's subscription to the specified plan. Use list_plans to see available plans.",
+          "Change the plan a company is on. This is a billing operation — it updates the company's subscription to the specified plan. Use list_plans to see available plans. Optionally start a trial by specifying trialDays.",
         inputSchema: {
           type: "object",
           properties: {
@@ -353,6 +353,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             planId: { type: "string", description: "ID of the plan to assign (e.g., plan_xxx)" },
             planName: { type: "string", description: "Name of the plan to assign" },
             interval: { type: "string", enum: ["month", "year"], description: "Billing interval: 'month' (default) or 'year'" },
+            trialDays: { type: "number", description: "Number of days for a free trial before billing begins" },
           },
         },
       },
@@ -1064,6 +1065,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
 
         const interval = stringArg(args, "interval");
+        const trialDaysArg = args?.["trialDays"];
+        const trialDays = typeof trialDaysArg === "number" ? trialDaysArg : undefined;
 
         const checkoutData = await getSchematicClient().checkout.getCheckoutData({
           companyId: company.id,
@@ -1116,17 +1119,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           );
         }
 
-        await getSchematicClient().checkout.managePlan({
-          companyId: company.id,
-          basePlanId: plan.id,
-          basePlanPriceId: selectedPrice.price.id,
-          addOnSelections: [],
-          creditBundles: [],
-          payInAdvanceEntitlements: [],
-        });
+        const trialEnd = trialDays !== undefined
+          ? new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000)
+          : undefined;
+
+        try {
+          await getSchematicClient().checkout.managePlan({
+            companyId: company.id,
+            basePlanId: plan.id,
+            basePlanPriceId: selectedPrice.price.id,
+            addOnSelections: [],
+            creditBundles: [],
+            payInAdvanceEntitlements: [],
+            ...(trialEnd ? { trialEnd } : {}),
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (trialDays === undefined && msg.toLowerCase().includes("no payment method")) {
+            return textResponse(
+              `Failed to change ${company.name || company.id} to plan "${plan.name}": the company has no payment method on file.\n\n` +
+              `To start a trial instead, re-run with trialDays set to the number of trial days (e.g. trialDays: 14).`
+            );
+          }
+          throw err;
+        }
+
+        const trialNote = trialEnd
+          ? ` with a ${trialDays}-day trial ending ${trialEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+          : "";
 
         return textResponse(
-          `Changed plan for ${company.name || company.id} to ${plan.name} (${plan.id}) with ${selectedPrice.interval}ly billing.\n` +
+          `Changed plan for ${company.name || company.id} to ${plan.name} (${plan.id}) with ${selectedPrice.interval}ly billing${trialNote}.\n` +
           `View company: ${getSchematicCompanyUrl(company.id)}`
         );
       }
