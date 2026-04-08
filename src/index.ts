@@ -855,6 +855,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "create_plan_with_billing": {
         const name = requiredStringArg(args, "name");
         const description = stringArg(args, "description");
+
+        // If the name is all lowercase, ask the user whether to capitalize or keep as-is
+        if (name === name.toLowerCase()) {
+          const titleCased = name
+            .split(/\s+/)
+            .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
+            .join(" ");
+          return textResponse(
+            `The plan name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
+          );
+        }
+
         const monthlyPriceDollars = args?.["monthlyPrice"] as number | undefined;
         const yearlyPriceDollars = args?.["yearlyPrice"] as number | undefined;
 
