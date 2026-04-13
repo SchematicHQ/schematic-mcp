@@ -153,7 +153,7 @@ export async function resolvePlan(
   if (identifier.planName) {
     const plans = await fetchAll(
       (params) => client.plans.listPlans(params),
-      {}
+      { planType: "plan" }
     );
     const plan = plans.find((p) => p.name === identifier.planName);
     if (!plan) {
@@ -163,6 +163,38 @@ export async function resolvePlan(
   }
 
   throw new Error("Either planId or planName is required");
+}
+
+export interface AddonIdentifier {
+  addonId?: string;
+  addonName?: string;
+}
+
+/**
+ * Resolves an add-on by ID or name
+ */
+export async function resolveAddon(
+  client: SchematicClient,
+  identifier: AddonIdentifier
+): Promise<PlanDetailResponseData> {
+  if (identifier.addonId) {
+    const response = await client.plans.getPlan(identifier.addonId);
+    return response.data;
+  }
+
+  if (identifier.addonName) {
+    const addons = await fetchAll(
+      (params) => client.plans.listPlans(params),
+      { planType: "add_on" }
+    );
+    const addon = addons.find((a) => a.name === identifier.addonName);
+    if (!addon) {
+      throw new Error(`Add-on "${identifier.addonName}" not found`);
+    }
+    return addon;
+  }
+
+  throw new Error("Either addonId or addonName is required");
 }
 
 /**
