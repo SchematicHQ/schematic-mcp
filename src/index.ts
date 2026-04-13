@@ -14,6 +14,7 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { SchematicClient, Schematic } from "@schematichq/schematic-typescript-node";
+import { version as mcpVersion } from "./version.js";
 
 type CompanyDetailResponseData = Schematic.CompanyDetailResponseData;
 type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
@@ -22,15 +23,21 @@ type CreateCompanyOverrideRequestBody = Schematic.CreateCompanyOverrideRequestBo
 type CreatePlanEntitlementRequestBody = Schematic.CreatePlanEntitlementRequestBody;
 
 import { getApiKey } from "./config.js";
-import { resolveCompany, resolveFeature, resolvePlan, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
+import { resolveCompany, resolveFeature, resolvePlan, resolveAddon, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
 
 // Initialize Schematic client lazily
 let schematicClient: SchematicClient | null = null;
+let currentToolName = "unknown";
 
 function getSchematicClient(): SchematicClient {
   if (!schematicClient) {
     const apiKey = getApiKey();
-    schematicClient = new SchematicClient({ apiKey });
+    const headers: Record<string, string> = {};
+    Object.defineProperty(headers, "User-Agent", {
+      get: () => `schematic-mcp/${mcpVersion} tool/${currentToolName}`,
+      enumerable: true,
+    });
+    schematicClient = new SchematicClient({ apiKey, headers });
   }
   return schematicClient;
 }
@@ -327,6 +334,77 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      // Add-on Management
+      {
+        name: "list_addons",
+        description: "List all add-ons in your Schematic account",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "create_addon",
+        description: "Create a new add-on",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Add-on name" },
+            description: { type: "string", description: "Add-on description" },
+          },
+          required: ["name"],
+        },
+      },
+      {
+        name: "add_entitlements_to_addon",
+        description:
+          "Add entitlements to an add-on. The feature type will be automatically determined by querying the feature. For boolean features, defaults to 'on' if no value is provided. For event-based or trait-based features, a value (number or 'unlimited') is required.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            addonId: { type: "string", description: "Add-on ID (e.g., plan_xxx)" },
+            addonName: { type: "string", description: "Add-on name" },
+            entitlements: {
+              type: "array",
+              description: "Array of entitlement configurations. For boolean features, value is optional (defaults to 'on'). For event/trait features, value is required.",
+              items: {
+                type: "object",
+                properties: {
+                  featureId: { type: "string" },
+                  featureName: { type: "string" },
+                  value: {
+                    type: "string",
+                    description: "Optional for boolean features (defaults to 'on'). Required for event/trait features: a number as string (e.g., '10', '100') or 'unlimited'.",
+                  },
+                },
+              },
+            },
+          },
+          required: ["entitlements"],
+        },
+      },
+      {
+        name: "get_addon_entitlements",
+        description: "Get all features/entitlements included in an add-on. Shows what features an add-on grants and their values.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            addonId: { type: "string", description: "Add-on ID (e.g., plan_xxx)" },
+            addonName: { type: "string", description: "Add-on name" },
+          },
+        },
+      },
+      {
+        name: "count_companies_on_addon",
+        description: "Count how many companies have a specific add-on",
+        inputSchema: {
+          type: "object",
+          properties: {
+            addonId: { type: "string", description: "Add-on ID (e.g., plan_xxx)" },
+            addonName: { type: "string", description: "Add-on name" },
+          },
+        },
+      },
       // Feature Usage
       {
         name: "get_feature_usage",
@@ -425,6 +503,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
+  currentToolName = name;
 
   try {
     switch (name) {
@@ -966,6 +1045,150 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         return textResponse(results.join("\n"));
+      }
+
+      case "list_addons": {
+        const addons = await fetchAll(
+          (params) => getSchematicClient().plans.listPlans(params),
+          { planType: "add_on" }
+        );
+
+        if (addons.length === 0) {
+          return textResponse("No add-ons found.");
+        }
+
+        const addonList = addons
+          .map((addon) => `- ${addon.name} (${addon.id})`)
+          .join("\n");
+
+        return textResponse(`Add-ons:\n${addonList}`);
+      }
+
+      case "create_addon": {
+        const name = requiredStringArg(args, "name");
+        const description = stringArg(args, "description");
+
+        const addonResponse = await getSchematicClient().plans.createPlan({
+          name,
+          description: description || "",
+          planType: "add_on",
+        });
+
+        const addon = addonResponse.data;
+
+        return textResponse(`Created add-on: ${addon.name} (${addon.id})`);
+      }
+
+      case "add_entitlements_to_addon": {
+        const addonId = stringArg(args, "addonId");
+        const addonName = stringArg(args, "addonName");
+        const entitlements = arrayArg<{
+          featureId?: string;
+          featureName?: string;
+          value?: string;
+        }>(args, "entitlements");
+
+        const addon = await resolveAddon(getSchematicClient(), { addonId, addonName });
+
+        if (!entitlements || entitlements.length === 0) {
+          throw new Error("At least one entitlement is required");
+        }
+
+        const results: string[] = [];
+
+        for (const entitlement of entitlements) {
+          const feature = await resolveFeature(getSchematicClient(), {
+            featureId: entitlement.featureId,
+            featureName: entitlement.featureName,
+          });
+          const featureType = feature.featureType;
+          const featureDisplay = feature.name || feature.id;
+
+          const entitlementBody: CreatePlanEntitlementRequestBody = {
+            planId: addon.id,
+            featureId: feature.id,
+            valueType: "boolean",
+          };
+
+          if (featureType === "boolean") {
+            const value = entitlement.value || "on";
+            entitlementBody.valueType = "boolean";
+            entitlementBody.valueBool = value === "on" || value === "true";
+          } else if (featureType === "event" || featureType === "trait") {
+            if (!entitlement.value) {
+              throw new Error(`Value is required for ${featureType}-based feature "${featureDisplay}". Please provide a number (e.g., "10", "100") or "unlimited".`);
+            }
+
+            if (entitlement.value === "unlimited") {
+              entitlementBody.valueType = "unlimited";
+            } else if (!isNaN(Number(entitlement.value))) {
+              entitlementBody.valueType = "numeric";
+              entitlementBody.valueNumeric = Number(entitlement.value);
+            } else {
+              throw new Error(`Invalid value "${entitlement.value}" for ${featureType}-based feature "${featureDisplay}". Must be a number or "unlimited".`);
+            }
+          } else {
+            throw new Error(`Unsupported feature type "${featureType}" for feature "${featureDisplay}".`);
+          }
+
+          await getSchematicClient().entitlements.createPlanEntitlement(entitlementBody);
+
+          const valueDisplay = entitlement.value || (featureType === "boolean" ? "on" : "not provided");
+          results.push(`Added ${featureType} entitlement for feature ${featureDisplay}: ${valueDisplay}`);
+        }
+
+        return textResponse(results.join("\n"));
+      }
+
+      case "get_addon_entitlements": {
+        const addon = await resolveAddon(getSchematicClient(), {
+          addonId: stringArg(args, "addonId"),
+          addonName: stringArg(args, "addonName"),
+        });
+
+        const entitlements = await fetchAll(
+          (params) => getSchematicClient().entitlements.listPlanEntitlements(params),
+          { planId: addon.id }
+        );
+
+        if (entitlements.length === 0) {
+          return textResponse(`Add-on ${addon.name || addon.id} has no entitlements.`);
+        }
+
+        const results: string[] = [`Add-on ${addon.name} (${addon.id}) has ${entitlements.length} entitlement${entitlements.length !== 1 ? "s" : ""}:`];
+
+        for (const entitlement of entitlements) {
+          const featureName = entitlement.feature?.name || entitlement.featureId;
+          const featureType = entitlement.feature?.featureType || "unknown";
+          let valueDisplay: string;
+
+          if (entitlement.valueType === "unlimited") {
+            valueDisplay = "unlimited";
+          } else if (entitlement.valueBool !== undefined) {
+            valueDisplay = entitlement.valueBool ? "on" : "off";
+          } else if (entitlement.valueNumeric !== undefined) {
+            valueDisplay = String(entitlement.valueNumeric);
+          } else {
+            valueDisplay = "unknown";
+          }
+
+          results.push(`  - ${featureName} (${featureType}): ${valueDisplay}`);
+        }
+
+        return textResponse(results.join("\n"));
+      }
+
+      case "count_companies_on_addon": {
+        const addon = await resolveAddon(getSchematicClient(), {
+          addonId: stringArg(args, "addonId"),
+          addonName: stringArg(args, "addonName"),
+        });
+
+        const count = addon.companyCount || 0;
+
+        return textResponse(
+          `${count} compan${count !== 1 ? "ies" : "y"} ${count !== 1 ? "are" : "is"} on add-on ${addon.name || addon.id}`
+        );
       }
 
       case "list_features": {
