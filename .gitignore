@@ -3,6 +3,8 @@ dist/
 *.log
 .env
 .env.local
+.mcpregistry_registry_token
+.mcpregistry_github_token
 .DS_Store
 package-lock.json
 .yarn/
