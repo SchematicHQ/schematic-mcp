@@ -21,6 +21,7 @@ type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
 type CompanyOverrideResponseData = Schematic.CompanyOverrideResponseData;
 type CreateCompanyOverrideRequestBody = Schematic.CreateCompanyOverrideRequestBody;
 type CreatePlanEntitlementRequestBody = Schematic.CreatePlanEntitlementRequestBody;
+type CreatePlanBundleRequestBody = Schematic.CreatePlanBundleRequestBody;
 
 import { getApiKey } from "./config.js";
 import { resolveCompany, resolveFeature, resolvePlan, resolveAddon, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
@@ -65,30 +66,6 @@ function textResponse(text: string) {
       },
     ],
   };
-}
-
-// Helper to check if a string is properly capitalized (Title Case)
-function isTitleCase(str: string): boolean {
-  if (!str || str.length === 0) return false;
-  // Check if first letter is uppercase and rest follows title case rules
-  const words = str.split(/\s+/);
-  return words.every(word => {
-    if (word.length === 0) return true;
-    const firstChar = word[0];
-    const rest = word.slice(1);
-    return firstChar === firstChar.toUpperCase() && rest === rest.toLowerCase();
-  });
-}
-
-// Helper to convert a string to Title Case
-function toTitleCase(str: string): string {
-  return str
-    .split(/\s+/)
-    .map(word => {
-      if (word.length === 0) return word;
-      return word[0].toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(' ');
 }
 
 // Helper to format an override value for display
@@ -277,7 +254,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Plan Management
       {
         name: "list_plans",
-        description: "List all plans in your Schematic account",
+        description: "List all plans in your Schematic account. Does not include add-ons.",
         inputSchema: {
           type: "object",
           properties: {},
@@ -291,6 +268,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             name: { type: "string", description: "Plan name" },
             description: { type: "string", description: "Plan description" },
+          },
+          required: ["name"],
+        },
+      },
+      {
+        name: "create_plan_with_billing",
+        description:
+          "Create a new plan with a Stripe-linked billing product. This creates both the plan and its associated Stripe product and prices in one step. Prices are specified in dollars (e.g., 29.99 for $29.99/month). If no prices are provided, the plan is created with $0 pricing. Use this instead of create_plan when you want the plan to be connected to Stripe billing.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Plan name" },
+            description: { type: "string", description: "Plan description" },
+            monthlyPrice: {
+              type: "number",
+              description: "Monthly price in dollars (e.g., 29.99 for $29.99/month). Defaults to 0.",
+            },
+            yearlyPrice: {
+              type: "number",
+              description: "Yearly price in dollars (e.g., 299.99 for $299.99/year). Defaults to 0.",
+            },
           },
           required: ["name"],
         },
@@ -952,7 +950,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "list_plans": {
         const plans = await fetchAll(
           (params) => getSchematicClient().plans.listPlans(params),
-          {}
+          { planType: "plan" }
         );
 
         if (plans.length === 0) {
@@ -979,6 +977,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const plan = planResponse.data;
 
         return textResponse(`Created plan: ${plan.name} (${plan.id})`);
+      }
+
+      case "create_plan_with_billing": {
+        const name = requiredStringArg(args, "name");
+        const description = stringArg(args, "description");
+
+        // If the name is all lowercase, ask the user whether to capitalize or keep as-is
+        if (name === name.toLowerCase()) {
+          const titleCased = name
+            .split(/\s+/)
+            .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
+            .join(" ");
+          return textResponse(
+            `The plan name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
+          );
+        }
+
+        const monthlyPriceDollars = args?.["monthlyPrice"] as number | undefined;
+        const yearlyPriceDollars = args?.["yearlyPrice"] as number | undefined;
+
+        // Convert dollar amounts to cents for the billing API
+        const monthlyPriceCents = Math.round((monthlyPriceDollars ?? 0) * 100);
+        const yearlyPriceCents = Math.round((yearlyPriceDollars ?? 0) * 100);
+        const isFree = monthlyPriceCents === 0 && yearlyPriceCents === 0;
+
+        const requestBody: CreatePlanBundleRequestBody = {
+          plan: {
+            name,
+            description: description || "",
+            planType: "plan",
+          },
+          billingProduct: {
+            chargeType: isFree ? "free" : "recurring",
+            isTrialable: false,
+            trialDays: 0,
+            currency: "usd",
+            monthlyPrice: monthlyPriceCents,
+            yearlyPrice: yearlyPriceCents,
+          },
+          entitlements: [],
+        };
+
+        const bundleResponse = await getSchematicClient().planbundle.createPlanBundle(requestBody);
+        const bundle = bundleResponse.data;
+        const plan = bundle.plan ?? { name, id: "unknown" };
+
+        const lines = [
+          `Created plan: ${plan.name} (${plan.id})`,
+          `Stripe billing product created and linked.`,
+        ];
+
+        if (monthlyPriceCents > 0 || yearlyPriceCents > 0) {
+          if (monthlyPriceCents > 0) {
+            lines.push(`Monthly price: $${(monthlyPriceCents / 100).toFixed(2)}/month`);
+          }
+          if (yearlyPriceCents > 0) {
+            lines.push(`Yearly price: $${(yearlyPriceCents / 100).toFixed(2)}/year`);
+          }
+        } else {
+          lines.push("Pricing: $0 (update prices in Stripe or Schematic dashboard)");
+        }
+
+        return textResponse(lines.join("\n"));
       }
 
       case "add_entitlements_to_plan": {
@@ -1223,10 +1284,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const planId = stringArg(args, "planId");
         const planName = stringArg(args, "planName");
 
-        // Check capitalization and auto-correct to Title Case
-        const properlyCapitalized = isTitleCase(name);
-        const suggestedName = toTitleCase(name);
-        const finalName = properlyCapitalized ? name : suggestedName;
+        // If the name is all lowercase, ask the user whether to capitalize or keep as-is
+        if (name === name.toLowerCase()) {
+          const titleCased = name
+            .split(/\s+/)
+            .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
+            .join(" ");
+          return textResponse(
+            `The feature name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
+          );
+        }
 
         // Use empty string if description is not provided
         const finalDescription = description || "";
@@ -1250,7 +1317,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           featureType: "boolean" | "event";
           eventSubtype?: string;
         } = {
-          name: finalName,
+          name,
           description: finalDescription,
           featureType,
         };
@@ -1281,11 +1348,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } catch (flagError: unknown) {
           const flagErrorMessage = flagError instanceof Error ? flagError.message : "Unknown error";
           result += `\n⚠️  Warning: Feature created but flag creation failed: ${flagErrorMessage}`;
-        }
-
-        // Add capitalization suggestion if the name was changed
-        if (!properlyCapitalized && name !== finalName) {
-          result += `\n💡 Note: Feature name was capitalized from "${name}" to "${finalName}"`;
         }
 
         return textResponse(result);
