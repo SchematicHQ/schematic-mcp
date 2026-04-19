@@ -161,15 +161,15 @@
     zod-to-json-schema "^3.25.1"
 
 "@schematichq/schematic-typescript-node@^1.0.0":
-  version "1.4.5"
-  resolved "https://registry.yarnpkg.com/@schematichq/schematic-typescript-node/-/schematic-typescript-node-1.4.5.tgz#b4b9eac79128a80a9216f498d5b7ab31aa5876f4"
-  integrity sha512-2TfG1GvdaFesbYlZQQDjJqGhE65zx61ijloG77IJcgmyZduQylFBt+oAZY8QemKzdgsdBryNvBw0TehGi3KBlQ==
+  version "1.4.6"
+  resolved "https://registry.yarnpkg.com/@schematichq/schematic-typescript-node/-/schematic-typescript-node-1.4.6.tgz#78d3d933cb98d97aa950c50416b47a40087571af"
+  integrity sha512-OX3oC03Rw9KCTgN41GQTVfvWSXYjYKqj3B6i6TI6ywMpNCdROQN/1WXb3d4dQgT3USENpL7l7p+flfiOKaqW+w==
   dependencies:
     "@types/ws" "^8.18.1"
     form-data "^4.0.4"
     formdata-node "^6.0.3"
     node-fetch "^2.7.0"
-    readable-stream "^4.5.2"
+    readable-stream "^4.7.0"
     ws "^8.18.1"
 
 "@types/node@*", "@types/node@^25.2.3":
@@ -805,7 +805,7 @@ raw-body@^3.0.0, raw-body@^3.0.1:
     iconv-lite "~0.7.0"
     unpipe "~1.0.0"
 
-readable-stream@^4.5.2:
+readable-stream@^4.7.0:
   version "4.7.0"
   resolved "https://registry.yarnpkg.com/readable-stream/-/readable-stream-4.7.0.tgz#cedbd8a1146c13dfff8dab14068028d58c15ac91"
   integrity sha512-oIGGmcpTLwPga8Bn6/Z75SVaH1z5dUut2ibSyAMVhmUggWpmDn2dapB0n7f8nwaSiRtepAsfJyfXIO5DCVAODg==
