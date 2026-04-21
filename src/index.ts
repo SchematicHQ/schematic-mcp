@@ -21,9 +21,10 @@ type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
 type CompanyOverrideResponseData = Schematic.CompanyOverrideResponseData;
 type CreateCompanyOverrideRequestBody = Schematic.CreateCompanyOverrideRequestBody;
 type CreatePlanEntitlementRequestBody = Schematic.CreatePlanEntitlementRequestBody;
+type CreatePlanBundleRequestBody = Schematic.CreatePlanBundleRequestBody;
 
 import { getApiKey } from "./config.js";
-import { resolveCompany, resolveFeature, resolvePlan, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
+import { resolveCompany, resolveFeature, resolvePlan, resolveAddon, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
 
 // Initialize Schematic client lazily
 let schematicClient: SchematicClient | null = null;
@@ -65,30 +66,6 @@ function textResponse(text: string) {
       },
     ],
   };
-}
-
-// Helper to check if a string is properly capitalized (Title Case)
-function isTitleCase(str: string): boolean {
-  if (!str || str.length === 0) return false;
-  // Check if first letter is uppercase and rest follows title case rules
-  const words = str.split(/\s+/);
-  return words.every(word => {
-    if (word.length === 0) return true;
-    const firstChar = word[0];
-    const rest = word.slice(1);
-    return firstChar === firstChar.toUpperCase() && rest === rest.toLowerCase();
-  });
-}
-
-// Helper to convert a string to Title Case
-function toTitleCase(str: string): string {
-  return str
-    .split(/\s+/)
-    .map(word => {
-      if (word.length === 0) return word;
-      return word[0].toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(' ');
 }
 
 // Helper to format an override value for display
@@ -288,7 +265,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       // Plan Management
       {
         name: "list_plans",
-        description: "List all plans in your Schematic account",
+        description: "List all plans in your Schematic account. Does not include add-ons.",
         inputSchema: {
           type: "object",
           properties: {},
@@ -302,6 +279,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             name: { type: "string", description: "Plan name" },
             description: { type: "string", description: "Plan description" },
+          },
+          required: ["name"],
+        },
+      },
+      {
+        name: "create_plan_with_billing",
+        description:
+          "Create a new plan with a Stripe-linked billing product. This creates both the plan and its associated Stripe product and prices in one step. Prices are specified in dollars (e.g., 29.99 for $29.99/month). If no prices are provided, the plan is created with $0 pricing. Use this instead of create_plan when you want the plan to be connected to Stripe billing.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Plan name" },
+            description: { type: "string", description: "Plan description" },
+            monthlyPrice: {
+              type: "number",
+              description: "Monthly price in dollars (e.g., 29.99 for $29.99/month). Defaults to 0.",
+            },
+            yearlyPrice: {
+              type: "number",
+              description: "Yearly price in dollars (e.g., 299.99 for $299.99/year). Defaults to 0.",
+            },
           },
           required: ["name"],
         },
@@ -361,6 +359,77 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             planName: { type: "string", description: "Name of the plan to assign" },
             interval: { type: "string", enum: ["month", "year"], description: "Billing interval: 'month' (default) or 'year'" },
             trialDays: { type: "number", description: "Number of days for a free trial before billing begins" },
+          }
+        }
+      },
+      // Add-on Management
+      {
+        name: "list_addons",
+        description: "List all add-ons in your Schematic account",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "create_addon",
+        description: "Create a new add-on",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Add-on name" },
+            description: { type: "string", description: "Add-on description" },
+          },
+          required: ["name"],
+        },
+      },
+      {
+        name: "add_entitlements_to_addon",
+        description:
+          "Add entitlements to an add-on. The feature type will be automatically determined by querying the feature. For boolean features, defaults to 'on' if no value is provided. For event-based or trait-based features, a value (number or 'unlimited') is required.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            addonId: { type: "string", description: "Add-on ID (e.g., plan_xxx)" },
+            addonName: { type: "string", description: "Add-on name" },
+            entitlements: {
+              type: "array",
+              description: "Array of entitlement configurations. For boolean features, value is optional (defaults to 'on'). For event/trait features, value is required.",
+              items: {
+                type: "object",
+                properties: {
+                  featureId: { type: "string" },
+                  featureName: { type: "string" },
+                  value: {
+                    type: "string",
+                    description: "Optional for boolean features (defaults to 'on'). Required for event/trait features: a number as string (e.g., '10', '100') or 'unlimited'.",
+                  },
+                },
+              },
+            },
+          },
+          required: ["entitlements"],
+        },
+      },
+      {
+        name: "get_addon_entitlements",
+        description: "Get all features/entitlements included in an add-on. Shows what features an add-on grants and their values.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            addonId: { type: "string", description: "Add-on ID (e.g., plan_xxx)" },
+            addonName: { type: "string", description: "Add-on name" },
+          },
+        },
+      },
+      {
+        name: "count_companies_on_addon",
+        description: "Count how many companies have a specific add-on",
+        inputSchema: {
+          type: "object",
+          properties: {
+            addonId: { type: "string", description: "Add-on ID (e.g., plan_xxx)" },
+            addonName: { type: "string", description: "Add-on name" },
           },
         },
       },
@@ -376,6 +445,44 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             companyName: { type: "string", description: "Company name to search for" },
             featureId: { type: "string", description: "Optional: filter to a specific feature by ID. Use list_features to find the ID if you only have a name." },
           },
+        },
+      },
+      {
+        name: "find_companies_near_limit",
+        description:
+          "Find companies at or above a usage threshold for a specific metered feature. Queries all companies for the given feature sorted by usage percentage (highest first), stopping as soon as usage drops below the threshold. If no featureId is provided, returns a list of metered features to choose from.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            featureId: {
+              type: "string",
+              description: "ID of the metered feature to scan. If omitted, the tool returns a list of available metered features to choose from.",
+            },
+            threshold: {
+              type: "number",
+              description: "Usage percentage threshold (0-100). Companies at or above this percentage are included. Defaults to 70.",
+            },
+          },
+        },
+      },
+      {
+        name: "check_companies_usage",
+        description:
+          "Check feature usage for a specific list of companies and identify which are at or above a usage threshold for any metered feature. Useful for proactive health checks on known accounts. Results are grouped by feature and sorted by percent used.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            companyIds: {
+              type: "array",
+              items: { type: "string" },
+              description: "List of Schematic company IDs to check (e.g., ['comp_xxx', 'comp_yyy'])",
+            },
+            threshold: {
+              type: "number",
+              description: "Usage percentage threshold (0-100). Companies at or above this percentage are included. Defaults to 70.",
+            },
+          },
+          required: ["companyIds"],
         },
       },
       // Feature Management
@@ -843,9 +950,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           const fname = item.feature?.name || "Unknown feature";
           const ftype = item.feature?.featureType || "unknown";
           const accessStr = item.access ? "allowed" : "denied";
+          const source = item.entitlementSource || "unknown";
+
+          const lines: string[] = [];
+          lines.push(`  - ${fname} (${ftype}) — ${accessStr}`);
 
           if (ftype === "boolean") {
-            results.push(`  - ${fname} (${ftype}) — ${accessStr}`);
+            lines.push(`    Source: ${source}`);
           } else {
             // Metered feature (event or trait)
             const usageVal = item.usage ?? 0;
@@ -853,8 +964,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const usageDisplay = item.isUnlimited
               ? `${usageVal} used (unlimited)`
               : `${usageVal} / ${allocationStr}`;
-            results.push(`  - ${fname} (${ftype}) — ${accessStr}, usage: ${usageDisplay}`);
+            lines.push(`    Usage: ${usageDisplay}`);
+            if (!item.isUnlimited && item.percentUsed !== undefined) {
+              lines.push(`    Percent used: ${Math.round(item.percentUsed)}%`);
+            }
+            lines.push(`    Source: ${source}`);
           }
+
+          results.push(lines.join("\n"));
         }
 
         return textResponse(results.join("\n"));
@@ -863,7 +980,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "list_plans": {
         const plans = await fetchAll(
           (params) => getSchematicClient().plans.listPlans(params),
-          {}
+          { planType: "plan" }
         );
 
         if (plans.length === 0) {
@@ -890,6 +1007,69 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const plan = planResponse.data;
 
         return textResponse(`Created plan: ${plan.name} (${plan.id})`);
+      }
+
+      case "create_plan_with_billing": {
+        const name = requiredStringArg(args, "name");
+        const description = stringArg(args, "description");
+
+        // If the name is all lowercase, ask the user whether to capitalize or keep as-is
+        if (name === name.toLowerCase()) {
+          const titleCased = name
+            .split(/\s+/)
+            .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
+            .join(" ");
+          return textResponse(
+            `The plan name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
+          );
+        }
+
+        const monthlyPriceDollars = args?.["monthlyPrice"] as number | undefined;
+        const yearlyPriceDollars = args?.["yearlyPrice"] as number | undefined;
+
+        // Convert dollar amounts to cents for the billing API
+        const monthlyPriceCents = Math.round((monthlyPriceDollars ?? 0) * 100);
+        const yearlyPriceCents = Math.round((yearlyPriceDollars ?? 0) * 100);
+        const isFree = monthlyPriceCents === 0 && yearlyPriceCents === 0;
+
+        const requestBody: CreatePlanBundleRequestBody = {
+          plan: {
+            name,
+            description: description || "",
+            planType: "plan",
+          },
+          billingProduct: {
+            chargeType: isFree ? "free" : "recurring",
+            isTrialable: false,
+            trialDays: 0,
+            currency: "usd",
+            monthlyPrice: monthlyPriceCents,
+            yearlyPrice: yearlyPriceCents,
+          },
+          entitlements: [],
+        };
+
+        const bundleResponse = await getSchematicClient().planbundle.createPlanBundle(requestBody);
+        const bundle = bundleResponse.data;
+        const plan = bundle.plan ?? { name, id: "unknown" };
+
+        const lines = [
+          `Created plan: ${plan.name} (${plan.id})`,
+          `Stripe billing product created and linked.`,
+        ];
+
+        if (monthlyPriceCents > 0 || yearlyPriceCents > 0) {
+          if (monthlyPriceCents > 0) {
+            lines.push(`Monthly price: $${(monthlyPriceCents / 100).toFixed(2)}/month`);
+          }
+          if (yearlyPriceCents > 0) {
+            lines.push(`Yearly price: $${(yearlyPriceCents / 100).toFixed(2)}/year`);
+          }
+        } else {
+          lines.push("Pricing: $0 (update prices in Stripe or Schematic dashboard)");
+        }
+
+        return textResponse(lines.join("\n"));
       }
 
       case "add_entitlements_to_plan": {
@@ -958,6 +1138,150 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return textResponse(results.join("\n"));
       }
 
+      case "list_addons": {
+        const addons = await fetchAll(
+          (params) => getSchematicClient().plans.listPlans(params),
+          { planType: "add_on" }
+        );
+
+        if (addons.length === 0) {
+          return textResponse("No add-ons found.");
+        }
+
+        const addonList = addons
+          .map((addon) => `- ${addon.name} (${addon.id})`)
+          .join("\n");
+
+        return textResponse(`Add-ons:\n${addonList}`);
+      }
+
+      case "create_addon": {
+        const name = requiredStringArg(args, "name");
+        const description = stringArg(args, "description");
+
+        const addonResponse = await getSchematicClient().plans.createPlan({
+          name,
+          description: description || "",
+          planType: "add_on",
+        });
+
+        const addon = addonResponse.data;
+
+        return textResponse(`Created add-on: ${addon.name} (${addon.id})`);
+      }
+
+      case "add_entitlements_to_addon": {
+        const addonId = stringArg(args, "addonId");
+        const addonName = stringArg(args, "addonName");
+        const entitlements = arrayArg<{
+          featureId?: string;
+          featureName?: string;
+          value?: string;
+        }>(args, "entitlements");
+
+        const addon = await resolveAddon(getSchematicClient(), { addonId, addonName });
+
+        if (!entitlements || entitlements.length === 0) {
+          throw new Error("At least one entitlement is required");
+        }
+
+        const results: string[] = [];
+
+        for (const entitlement of entitlements) {
+          const feature = await resolveFeature(getSchematicClient(), {
+            featureId: entitlement.featureId,
+            featureName: entitlement.featureName,
+          });
+          const featureType = feature.featureType;
+          const featureDisplay = feature.name || feature.id;
+
+          const entitlementBody: CreatePlanEntitlementRequestBody = {
+            planId: addon.id,
+            featureId: feature.id,
+            valueType: "boolean",
+          };
+
+          if (featureType === "boolean") {
+            const value = entitlement.value || "on";
+            entitlementBody.valueType = "boolean";
+            entitlementBody.valueBool = value === "on" || value === "true";
+          } else if (featureType === "event" || featureType === "trait") {
+            if (!entitlement.value) {
+              throw new Error(`Value is required for ${featureType}-based feature "${featureDisplay}". Please provide a number (e.g., "10", "100") or "unlimited".`);
+            }
+
+            if (entitlement.value === "unlimited") {
+              entitlementBody.valueType = "unlimited";
+            } else if (!isNaN(Number(entitlement.value))) {
+              entitlementBody.valueType = "numeric";
+              entitlementBody.valueNumeric = Number(entitlement.value);
+            } else {
+              throw new Error(`Invalid value "${entitlement.value}" for ${featureType}-based feature "${featureDisplay}". Must be a number or "unlimited".`);
+            }
+          } else {
+            throw new Error(`Unsupported feature type "${featureType}" for feature "${featureDisplay}".`);
+          }
+
+          await getSchematicClient().entitlements.createPlanEntitlement(entitlementBody);
+
+          const valueDisplay = entitlement.value || (featureType === "boolean" ? "on" : "not provided");
+          results.push(`Added ${featureType} entitlement for feature ${featureDisplay}: ${valueDisplay}`);
+        }
+
+        return textResponse(results.join("\n"));
+      }
+
+      case "get_addon_entitlements": {
+        const addon = await resolveAddon(getSchematicClient(), {
+          addonId: stringArg(args, "addonId"),
+          addonName: stringArg(args, "addonName"),
+        });
+
+        const entitlements = await fetchAll(
+          (params) => getSchematicClient().entitlements.listPlanEntitlements(params),
+          { planId: addon.id }
+        );
+
+        if (entitlements.length === 0) {
+          return textResponse(`Add-on ${addon.name || addon.id} has no entitlements.`);
+        }
+
+        const results: string[] = [`Add-on ${addon.name} (${addon.id}) has ${entitlements.length} entitlement${entitlements.length !== 1 ? "s" : ""}:`];
+
+        for (const entitlement of entitlements) {
+          const featureName = entitlement.feature?.name || entitlement.featureId;
+          const featureType = entitlement.feature?.featureType || "unknown";
+          let valueDisplay: string;
+
+          if (entitlement.valueType === "unlimited") {
+            valueDisplay = "unlimited";
+          } else if (entitlement.valueBool !== undefined) {
+            valueDisplay = entitlement.valueBool ? "on" : "off";
+          } else if (entitlement.valueNumeric !== undefined) {
+            valueDisplay = String(entitlement.valueNumeric);
+          } else {
+            valueDisplay = "unknown";
+          }
+
+          results.push(`  - ${featureName} (${featureType}): ${valueDisplay}`);
+        }
+
+        return textResponse(results.join("\n"));
+      }
+
+      case "count_companies_on_addon": {
+        const addon = await resolveAddon(getSchematicClient(), {
+          addonId: stringArg(args, "addonId"),
+          addonName: stringArg(args, "addonName"),
+        });
+
+        const count = addon.companyCount || 0;
+
+        return textResponse(
+          `${count} compan${count !== 1 ? "ies" : "y"} ${count !== 1 ? "are" : "is"} on add-on ${addon.name || addon.id}`
+        );
+      }
+
       case "list_features": {
         const features = await fetchAll(
           (params) => getSchematicClient().features.listFeatures(params),
@@ -990,10 +1314,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const planId = stringArg(args, "planId");
         const planName = stringArg(args, "planName");
 
-        // Check capitalization and auto-correct to Title Case
-        const properlyCapitalized = isTitleCase(name);
-        const suggestedName = toTitleCase(name);
-        const finalName = properlyCapitalized ? name : suggestedName;
+        // If the name is all lowercase, ask the user whether to capitalize or keep as-is
+        if (name === name.toLowerCase()) {
+          const titleCased = name
+            .split(/\s+/)
+            .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
+            .join(" ");
+          return textResponse(
+            `The feature name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
+          );
+        }
 
         // Use empty string if description is not provided
         const finalDescription = description || "";
@@ -1017,7 +1347,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           featureType: "boolean" | "event";
           eventSubtype?: string;
         } = {
-          name: finalName,
+          name,
           description: finalDescription,
           featureType,
         };
@@ -1050,12 +1380,202 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           result += `\n⚠️  Warning: Feature created but flag creation failed: ${flagErrorMessage}`;
         }
 
-        // Add capitalization suggestion if the name was changed
-        if (!properlyCapitalized && name !== finalName) {
-          result += `\n💡 Note: Feature name was capitalized from "${name}" to "${finalName}"`;
+        return textResponse(result);
+      }
+
+      case "find_companies_near_limit": {
+        const thresholdArg = args?.["threshold"];
+        const threshold = (typeof thresholdArg === "number" ? thresholdArg : 70);
+        const featureId = stringArg(args, "featureId");
+
+        if (!featureId) {
+          // No feature specified — return metered features for the user to choose from
+          const features = await fetchAll(
+            (params) => getSchematicClient().features.listFeatures(params),
+            {}
+          );
+          const metered = features.filter((f) => f.featureType === "event" || f.featureType === "trait");
+          if (metered.length === 0) {
+            return textResponse("No metered features found. This tool requires a metered (event-based or trait-based) feature.");
+          }
+          const list = metered.map((f) => `- ${f.name} (${f.id})`).join("\n");
+          return textResponse(`Please provide a featureId to scan. Available metered features:\n${list}`);
         }
 
-        return textResponse(result);
+        interface NearLimitResult {
+          companyId: string;
+          companyName: string;
+          featureName: string;
+          featureId: string;
+          usage: number;
+          allocation: number;
+          percentUsed: number;
+        }
+
+        const allResults: NearLimitResult[] = [];
+
+        // listFeatureCompanies returns results sorted by percentUsed descending,
+        // so we can stop as soon as we hit a company below the threshold.
+        const PAGE_SIZE = 100;
+        let offset = 0;
+        let done = false;
+
+        while (!done) {
+          const resp = await getSchematicClient().entitlements.listFeatureCompanies({
+            featureId,
+            limit: PAGE_SIZE,
+            offset,
+          });
+          const items = resp.data ?? [];
+
+          for (const item of items) {
+            if (item.isUnlimited || item.percentUsed === undefined || item.percentUsed === null) continue;
+            if (item.percentUsed < threshold) {
+              done = true;
+              break;
+            }
+            allResults.push({
+              companyId: item.company?.id ?? "unknown",
+              companyName: item.company?.name ?? item.company?.id ?? "Unknown",
+              featureName: item.feature?.name ?? "Unknown",
+              featureId: item.feature?.id ?? featureId,
+              usage: item.usage ?? 0,
+              allocation: item.allocation ?? 0,
+              percentUsed: item.percentUsed,
+            });
+          }
+
+          if (!done) {
+            if (items.length < PAGE_SIZE) done = true;
+            else offset += PAGE_SIZE;
+          }
+        }
+
+        const scopeLabel = `feature ${featureId}`;
+
+        if (allResults.length === 0) {
+          return textResponse(`No features at or above ${threshold}% usage found across ${scopeLabel}.`);
+        }
+
+        // Group by feature
+        const byFeature = new Map<string, NearLimitResult[]>();
+        for (const r of allResults) {
+          if (!byFeature.has(r.featureName)) byFeature.set(r.featureName, []);
+          byFeature.get(r.featureName)!.push(r);
+        }
+
+        const lines: string[] = [
+          `Found ${allResults.length} feature usage(s) at or above ${threshold}% across ${scopeLabel}:\n`,
+        ];
+
+        for (const [fname, rows] of byFeature) {
+          lines.push(`Feature: ${fname} (${rows[0].featureId}) — ${rows.length} company/companies`);
+          for (const r of rows) {
+            const pct = Math.round(r.percentUsed);
+            lines.push(`  ${pct}%  ${r.usage}/${r.allocation}  ${r.companyName} (${r.companyId})`);
+            lines.push(`       ${getSchematicCompanyUrl(r.companyId)}`);
+          }
+          lines.push("");
+        }
+
+        return textResponse(lines.join("\n"));
+      }
+
+      case "check_companies_usage": {
+        const companyIds = arrayArg<string>(args, "companyIds");
+        if (!companyIds || companyIds.length === 0) {
+          throw new Error("companyIds is required and must not be empty");
+        }
+
+        const thresholdArg = args?.["threshold"];
+        const threshold = (typeof thresholdArg === "number" ? thresholdArg : 70);
+
+        interface UsageResult {
+          companyId: string;
+          companyName: string;
+          featureName: string;
+          featureId: string;
+          usage: number;
+          allocation: number;
+          percentUsed: number;
+        }
+
+        const allResults: UsageResult[] = [];
+        const errors: { companyId: string; error: string }[] = [];
+
+        const CONCURRENCY = 10;
+        let idx = 0;
+
+        async function worker() {
+          while (idx < companyIds!.length) {
+            const cid = companyIds![idx++];
+            try {
+              const companyResp = await getSchematicClient().companies.getCompany(cid);
+              const company = companyResp.data;
+
+              const companyKeys: Record<string, string> = {};
+              for (const k of company.keys) {
+                companyKeys[k.key] = k.value;
+              }
+
+              if (Object.keys(companyKeys).length === 0) continue;
+
+              const usageResp = await getSchematicClient().entitlements.getFeatureUsageByCompany({ keys: companyKeys });
+              const features = usageResp.data.features ?? [];
+
+              for (const item of features) {
+                if (item.isUnlimited || item.percentUsed === undefined || item.percentUsed === null) continue;
+                if (item.percentUsed >= threshold) {
+                  allResults.push({
+                    companyId: company.id,
+                    companyName: company.name ?? company.id,
+                    featureName: item.feature?.name ?? "Unknown",
+                    featureId: item.feature?.id ?? "unknown",
+                    usage: item.usage ?? 0,
+                    allocation: item.allocation ?? 0,
+                    percentUsed: item.percentUsed,
+                  });
+                }
+              }
+            } catch (err: unknown) {
+              errors.push({ companyId: cid, error: err instanceof Error ? err.message : String(err) });
+            }
+          }
+        }
+
+        await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+        allResults.sort((a, b) => b.percentUsed - a.percentUsed);
+
+        if (allResults.length === 0) {
+          const errNote = errors.length > 0 ? ` (${errors.length} companies could not be checked)` : "";
+          return textResponse(`No features at or above ${threshold}% usage found across ${companyIds.length} companies${errNote}.`);
+        }
+
+        const byFeature = new Map<string, UsageResult[]>();
+        for (const r of allResults) {
+          if (!byFeature.has(r.featureName)) byFeature.set(r.featureName, []);
+          byFeature.get(r.featureName)!.push(r);
+        }
+
+        const lines: string[] = [
+          `Found ${allResults.length} feature usage(s) at or above ${threshold}% across ${companyIds.length} companies:\n`,
+        ];
+
+        for (const [fname, rows] of byFeature) {
+          lines.push(`Feature: ${fname} (${rows[0].featureId}) — ${rows.length} company/companies`);
+          for (const r of rows) {
+            const pct = Math.round(r.percentUsed);
+            lines.push(`  ${pct}%  ${r.usage}/${r.allocation}  ${r.companyName} (${r.companyId})`);
+            lines.push(`       ${getSchematicCompanyUrl(r.companyId)}`);
+          }
+          lines.push("");
+        }
+
+        if (errors.length > 0) {
+          lines.push(`${errors.length} company/companies could not be checked (lookup failed).`);
+        }
+
+        return textResponse(lines.join("\n"));
       }
 
       case "change_company_plan": {
