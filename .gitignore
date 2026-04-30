@@ -10,4 +10,8 @@ package-lock.json
 .yarn/
 .pnp.*
 .yarnrc.yml
+.claude/
+.mcp.json
+.mcpregistry_github_token
+.mcpregistry_registry_token
 
