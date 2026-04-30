@@ -161,15 +161,15 @@
     zod-to-json-schema "^3.25.1"
 
 "@schematichq/schematic-typescript-node@^1.0.0":
-  version "1.4.5"
-  resolved "https://registry.yarnpkg.com/@schematichq/schematic-typescript-node/-/schematic-typescript-node-1.4.5.tgz#b4b9eac79128a80a9216f498d5b7ab31aa5876f4"
-  integrity sha512-2TfG1GvdaFesbYlZQQDjJqGhE65zx61ijloG77IJcgmyZduQylFBt+oAZY8QemKzdgsdBryNvBw0TehGi3KBlQ==
+  version "1.4.6"
+  resolved "https://registry.yarnpkg.com/@schematichq/schematic-typescript-node/-/schematic-typescript-node-1.4.6.tgz#78d3d933cb98d97aa950c50416b47a40087571af"
+  integrity sha512-OX3oC03Rw9KCTgN41GQTVfvWSXYjYKqj3B6i6TI6ywMpNCdROQN/1WXb3d4dQgT3USENpL7l7p+flfiOKaqW+w==
   dependencies:
     "@types/ws" "^8.18.1"
     form-data "^4.0.4"
     formdata-node "^6.0.3"
     node-fetch "^2.7.0"
-    readable-stream "^4.5.2"
+    readable-stream "^4.7.0"
     ws "^8.18.1"
 
 "@types/node@*", "@types/node@^25.2.3":
@@ -760,10 +760,10 @@ path-key@^3.1.0:
   resolved "https://registry.yarnpkg.com/path-key/-/path-key-3.1.1.tgz#581f6ade658cbba65a0d3380de7753295054f375"
   integrity sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==
 
-path-to-regexp@^8.0.0:
-  version "8.3.0"
-  resolved "https://registry.yarnpkg.com/path-to-regexp/-/path-to-regexp-8.3.0.tgz#aa818a6981f99321003a08987d3cec9c3474cd1f"
-  integrity sha512-7jdwVIRtsP8MYpdXSwOS0YdD0Du+qOoF/AEPIt88PcCFrZCzx41oxku1jD88hZBwbNUIEfpqvuhjFaMAqMTWnA==
+path-to-regexp@>=8.4.0, path-to-regexp@^8.0.0:
+  version "8.4.2"
+  resolved "https://registry.yarnpkg.com/path-to-regexp/-/path-to-regexp-8.4.2.tgz#795c420c4f7ca45c5b887366f622ee0c9852cccd"
+  integrity sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA==
 
 pkce-challenge@^5.0.0:
   version "5.0.1"
@@ -805,7 +805,7 @@ raw-body@^3.0.0, raw-body@^3.0.1:
     iconv-lite "~0.7.0"
     unpipe "~1.0.0"
 
-readable-stream@^4.5.2:
+readable-stream@^4.7.0:
   version "4.7.0"
   resolved "https://registry.yarnpkg.com/readable-stream/-/readable-stream-4.7.0.tgz#cedbd8a1146c13dfff8dab14068028d58c15ac91"
   integrity sha512-oIGGmcpTLwPga8Bn6/Z75SVaH1z5dUut2ibSyAMVhmUggWpmDn2dapB0n7f8nwaSiRtepAsfJyfXIO5DCVAODg==
