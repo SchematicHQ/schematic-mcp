@@ -272,27 +272,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["name"],
         },
       },
-      {
-        name: "create_plan_with_billing",
-        description:
-          "Create a new plan with a Stripe-linked billing product. This creates both the plan and its associated Stripe product and prices in one step. Prices are specified in dollars (e.g., 29.99 for $29.99/month). If no prices are provided, the plan is created with $0 pricing. Use this instead of create_plan when you want the plan to be connected to Stripe billing.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            name: { type: "string", description: "Plan name" },
-            description: { type: "string", description: "Plan description" },
-            monthlyPrice: {
-              type: "number",
-              description: "Monthly price in dollars (e.g., 29.99 for $29.99/month). Defaults to 0.",
-            },
-            yearlyPrice: {
-              type: "number",
-              description: "Yearly price in dollars (e.g., 299.99 for $299.99/year). Defaults to 0.",
-            },
-          },
-          required: ["name"],
-        },
-      },
+      // {
+      //   name: "create_plan_with_billing",
+      //   description:
+      //     "Create a new plan with a Stripe-linked billing product. This creates both the plan and its associated Stripe product and prices in one step. Prices are specified in dollars (e.g., 29.99 for $29.99/month). If no prices are provided, the plan is created with $0 pricing. Use this instead of create_plan when you want the plan to be connected to Stripe billing.",
+      //   inputSchema: {
+      //     type: "object",
+      //     properties: {
+      //       name: { type: "string", description: "Plan name" },
+      //       description: { type: "string", description: "Plan description" },
+      //       monthlyPrice: {
+      //         type: "number",
+      //         description: "Monthly price in dollars (e.g., 29.99 for $29.99/month). Defaults to 0.",
+      //       },
+      //       yearlyPrice: {
+      //         type: "number",
+      //         description: "Yearly price in dollars (e.g., 299.99 for $299.99/year). Defaults to 0.",
+      //       },
+      //     },
+      //     required: ["name"],
+      //   },
+      // },
       {
         name: "add_entitlements_to_plan",
         description:
@@ -979,68 +979,68 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return textResponse(`Created plan: ${plan.name} (${plan.id})`);
       }
 
-      case "create_plan_with_billing": {
-        const name = requiredStringArg(args, "name");
-        const description = stringArg(args, "description");
-
-        // If the name is all lowercase, ask the user whether to capitalize or keep as-is
-        if (name === name.toLowerCase()) {
-          const titleCased = name
-            .split(/\s+/)
-            .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
-            .join(" ");
-          return textResponse(
-            `The plan name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
-          );
-        }
-
-        const monthlyPriceDollars = args?.["monthlyPrice"] as number | undefined;
-        const yearlyPriceDollars = args?.["yearlyPrice"] as number | undefined;
-
-        // Convert dollar amounts to cents for the billing API
-        const monthlyPriceCents = Math.round((monthlyPriceDollars ?? 0) * 100);
-        const yearlyPriceCents = Math.round((yearlyPriceDollars ?? 0) * 100);
-        const isFree = monthlyPriceCents === 0 && yearlyPriceCents === 0;
-
-        const requestBody: CreatePlanBundleRequestBody = {
-          plan: {
-            name,
-            description: description || "",
-            planType: "plan",
-          },
-          billingProduct: {
-            chargeType: isFree ? "free" : "recurring",
-            isTrialable: false,
-            trialDays: 0,
-            currency: "usd",
-            monthlyPrice: monthlyPriceCents,
-            yearlyPrice: yearlyPriceCents,
-          },
-          entitlements: [],
-        };
-
-        const bundleResponse = await getSchematicClient().planbundle.createPlanBundle(requestBody);
-        const bundle = bundleResponse.data;
-        const plan = bundle.plan ?? { name, id: "unknown" };
-
-        const lines = [
-          `Created plan: ${plan.name} (${plan.id})`,
-          `Stripe billing product created and linked.`,
-        ];
-
-        if (monthlyPriceCents > 0 || yearlyPriceCents > 0) {
-          if (monthlyPriceCents > 0) {
-            lines.push(`Monthly price: $${(monthlyPriceCents / 100).toFixed(2)}/month`);
-          }
-          if (yearlyPriceCents > 0) {
-            lines.push(`Yearly price: $${(yearlyPriceCents / 100).toFixed(2)}/year`);
-          }
-        } else {
-          lines.push("Pricing: $0 (update prices in Stripe or Schematic dashboard)");
-        }
-
-        return textResponse(lines.join("\n"));
-      }
+      // case "create_plan_with_billing": {
+      //   const name = requiredStringArg(args, "name");
+      //   const description = stringArg(args, "description");
+      //
+      //   // If the name is all lowercase, ask the user whether to capitalize or keep as-is
+      //   if (name === name.toLowerCase()) {
+      //     const titleCased = name
+      //       .split(/\s+/)
+      //       .map((word) => (word.length === 0 ? word : word[0].toUpperCase() + word.slice(1)))
+      //       .join(" ");
+      //     return textResponse(
+      //       `The plan name "${name}" is all lowercase. Would you like to use "${titleCased}" or keep it as-is?`
+      //     );
+      //   }
+      //
+      //   const monthlyPriceDollars = args?.["monthlyPrice"] as number | undefined;
+      //   const yearlyPriceDollars = args?.["yearlyPrice"] as number | undefined;
+      //
+      //   // Convert dollar amounts to cents for the billing API
+      //   const monthlyPriceCents = Math.round((monthlyPriceDollars ?? 0) * 100);
+      //   const yearlyPriceCents = Math.round((yearlyPriceDollars ?? 0) * 100);
+      //   const isFree = monthlyPriceCents === 0 && yearlyPriceCents === 0;
+      //
+      //   const requestBody: CreatePlanBundleRequestBody = {
+      //     plan: {
+      //       name,
+      //       description: description || "",
+      //       planType: "plan",
+      //     },
+      //     billingProduct: {
+      //       chargeType: isFree ? "free" : "recurring",
+      //       isTrialable: false,
+      //       trialDays: 0,
+      //       currency: "usd",
+      //       monthlyPrice: monthlyPriceCents,
+      //       yearlyPrice: yearlyPriceCents,
+      //     },
+      //     entitlements: [],
+      //   };
+      //
+      //   const bundleResponse = await getSchematicClient().planbundle.createPlanBundle(requestBody);
+      //   const bundle = bundleResponse.data;
+      //   const plan = bundle.plan ?? { name, id: "unknown" };
+      //
+      //   const lines = [
+      //     `Created plan: ${plan.name} (${plan.id})`,
+      //     `Stripe billing product created and linked.`,
+      //   ];
+      //
+      //   if (monthlyPriceCents > 0 || yearlyPriceCents > 0) {
+      //     if (monthlyPriceCents > 0) {
+      //       lines.push(`Monthly price: $${(monthlyPriceCents / 100).toFixed(2)}/month`);
+      //     }
+      //     if (yearlyPriceCents > 0) {
+      //       lines.push(`Yearly price: $${(yearlyPriceCents / 100).toFixed(2)}/year`);
+      //     }
+      //   } else {
+      //     lines.push("Pricing: $0 (update prices in Stripe or Schematic dashboard)");
+      //   }
+      //
+      //   return textResponse(lines.join("\n"));
+      // }
 
       case "add_entitlements_to_plan": {
         const planId = stringArg(args, "planId");
