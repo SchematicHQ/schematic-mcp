@@ -43,18 +43,18 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "@schematichq/schematic-typescript-node": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@schematichq/schematic-typescript-node": "^1.4.6"
   },
   "devDependencies": {
-    "@types/node": "^25.2.3",
-    "dotenv": "^17.3.1",
-    "tsx": "^4.7.0",
-    "typescript": "^6.0.2"
+    "@types/node": "^25.9.1",
+    "dotenv": "^17.4.2",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
   },
   "resolutions": {
-    "@hono/node-server": ">=1.19.10",
-    "hono": ">=4.12.7",
+    "@hono/node-server": "^1.19.13",
+    "hono": "^4.12.18",
     "express-rate-limit": ">=8.2.2",
     "path-to-regexp": ">=8.4.0"
   },
