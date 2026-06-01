@@ -12,6 +12,11 @@ updates:
     labels:
       - "npm"
       - "Dependabot"
+    # Wait before proposing newly published versions, to reduce exposure to
+    # malicious/unstable releases (supply-chain hardening).
+    cooldown:
+      default-days: 7
+      semver-major-days: 7
     groups:
       dev-dependencies:
         dependency-type: "development"
@@ -22,3 +27,5 @@ updates:
     labels:
       - "github-actions"
       - "Dependabot"
+    cooldown:
+      default-days: 7
