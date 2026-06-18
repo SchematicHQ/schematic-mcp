@@ -23,7 +23,7 @@ type CreateCompanyOverrideRequestBody = Schematic.CreateCompanyOverrideRequestBo
 type CreatePlanEntitlementRequestBody = Schematic.CreatePlanEntitlementRequestBody;
 type CreatePlanBundleRequestBody = Schematic.CreatePlanBundleRequestBody;
 
-import { getApiKey } from "./config.js";
+import { getApiKey, getApiUrl } from "./config.js";
 import { resolveCompany, resolveFeature, resolvePlan, resolveAddon, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
 
 // Initialize Schematic client lazily
@@ -38,7 +38,10 @@ function getSchematicClient(): SchematicClient {
       get: () => `schematic-mcp/${mcpVersion} tool/${currentToolName}`,
       enumerable: true,
     });
-    schematicClient = new SchematicClient({ apiKey, headers });
+    const apiUrl = getApiUrl();
+    schematicClient = new SchematicClient(
+      apiUrl ? { apiKey, headers, basePath: apiUrl } : { apiKey, headers },
+    );
   }
   return schematicClient;
 }
@@ -107,11 +110,11 @@ function arrayArg<T>(args: Record<string, unknown> | undefined, key: string): T[
 
 // Helper to generate a flag key from a feature name
 function generateFlagKey(name: string): string {
-  // Convert to lowercase and replace spaces/special chars with underscores
+  // Convert to lowercase and replace spaces/special chars with hyphens
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 // Register tools
