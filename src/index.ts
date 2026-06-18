@@ -276,6 +276,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "create_company",
+        description:
+          "Create (upsert) a company, identified by a key. Companies are looked up by one or more keys (e.g. an 'id' key) — see Key Management. Optionally set a display name and traits. If a company with the given key already exists, it is updated rather than duplicated.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            keyName: {
+              type: "string",
+              description: "The key name used to identify the company (e.g. 'id'). Key names are configured in Schematic.",
+            },
+            keyValue: {
+              type: "string",
+              description: "The value for keyName (e.g. 'demo-co').",
+            },
+            name: {
+              type: "string",
+              description: "Optional display name for the company.",
+            },
+            traits: {
+              type: "object",
+              description: "Optional map of trait names to values (e.g. { \"plan_tier\": \"pro\" }).",
+            },
+          },
+          required: ["keyName", "keyValue"],
+        },
+      },
+      {
         name: "create_plan_with_billing",
         description:
           "Create a new plan with a Stripe-linked billing product. This creates both the plan and its associated Stripe product and prices in one step. Prices are specified in dollars (e.g., 29.99 for $29.99/month). If no prices are provided, the plan is created with $0 pricing. Use this instead of create_plan when you want the plan to be connected to Stripe billing.",
@@ -980,6 +1007,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const plan = planResponse.data;
 
         return textResponse(`Created plan: ${plan.name} (${plan.id})`);
+      }
+
+      case "create_company": {
+        const keyName = requiredStringArg(args, "keyName");
+        const keyValue = requiredStringArg(args, "keyValue");
+        const name = stringArg(args, "name");
+        const traitsArg = args?.["traits"];
+        const traits =
+          traitsArg && typeof traitsArg === "object" && !Array.isArray(traitsArg)
+            ? (traitsArg as Record<string, unknown>)
+            : undefined;
+
+        const companyResponse = await getSchematicClient().companies.upsertCompany({
+          keys: { [keyName]: keyValue },
+          ...(name ? { name } : {}),
+          ...(traits ? { traits } : {}),
+        });
+
+        const company = companyResponse.data;
+        return textResponse(`Created company: ${company.name || keyValue} (${company.id})`);
       }
 
       case "create_plan_with_billing": {
