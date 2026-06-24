@@ -20,6 +20,7 @@ type CompanyDetailResponseData = Schematic.CompanyDetailResponseData;
 type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
 type CompanyOverrideResponseData = Schematic.CompanyOverrideResponseData;
 type CreateCompanyOverrideRequestBody = Schematic.CreateCompanyOverrideRequestBody;
+type UpsertCompanyRequestBody = Schematic.UpsertCompanyRequestBody;
 type CreatePlanEntitlementRequestBody = Schematic.CreatePlanEntitlementRequestBody;
 type CreatePlanBundleRequestBody = Schematic.CreatePlanBundleRequestBody;
 
@@ -106,6 +107,16 @@ function arrayArg<T>(args: Record<string, unknown> | undefined, key: string): T[
     throw new Error(`Expected "${key}" to be an array, got ${typeof val}`);
   }
   return val as T[];
+}
+
+// Helper to safely extract an object (map) argument from tool args
+function objectArg(args: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  const val = args?.[key];
+  if (val === undefined || val === null) return undefined;
+  if (typeof val !== "object" || Array.isArray(val)) {
+    throw new Error(`Expected "${key}" to be an object, got ${Array.isArray(val) ? "array" : typeof val}`);
+  }
+  return val as Record<string, unknown>;
 }
 
 // Helper to generate a flag key from a feature name
@@ -209,6 +220,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
         },
       },
+      {
+        name: "create_company",
+        description:
+          "Create (upsert) a company, identified by a key. Companies are looked up by one or more keys (e.g. an 'id' key) — see Key Management. Optionally set a display name and traits. If a company with the given key already exists, it is updated rather than duplicated.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            keyName: {
+              type: "string",
+              description: "The key name used to identify the company (e.g. 'id'). Key names are configured in Schematic.",
+            },
+            keyValue: {
+              type: "string",
+              description: "The value for keyName (e.g. 'demo-co').",
+            },
+            name: {
+              type: "string",
+              description: "Optional display name for the company.",
+            },
+            traits: {
+              type: "object",
+              description: "Optional map of trait names to values (e.g. { \"plan_tier\": \"pro\" }).",
+            },
+          },
+          required: ["keyName", "keyValue"],
+        },
+      },
       // Company Overrides
       {
         name: "list_company_overrides",
@@ -273,33 +311,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             description: { type: "string", description: "Plan description" },
           },
           required: ["name"],
-        },
-      },
-      {
-        name: "create_company",
-        description:
-          "Create (upsert) a company, identified by a key. Companies are looked up by one or more keys (e.g. an 'id' key) — see Key Management. Optionally set a display name and traits. If a company with the given key already exists, it is updated rather than duplicated.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            keyName: {
-              type: "string",
-              description: "The key name used to identify the company (e.g. 'id'). Key names are configured in Schematic.",
-            },
-            keyValue: {
-              type: "string",
-              description: "The value for keyName (e.g. 'demo-co').",
-            },
-            name: {
-              type: "string",
-              description: "Optional display name for the company.",
-            },
-            traits: {
-              type: "object",
-              description: "Optional map of trait names to values (e.g. { \"plan_tier\": \"pro\" }).",
-            },
-          },
-          required: ["keyName", "keyValue"],
         },
       },
       {
@@ -1013,20 +1024,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const keyName = requiredStringArg(args, "keyName");
         const keyValue = requiredStringArg(args, "keyValue");
         const name = stringArg(args, "name");
-        const traitsArg = args?.["traits"];
-        const traits =
-          traitsArg && typeof traitsArg === "object" && !Array.isArray(traitsArg)
-            ? (traitsArg as Record<string, unknown>)
-            : undefined;
+        const traits = objectArg(args, "traits");
 
-        const companyResponse = await getSchematicClient().companies.upsertCompany({
+        const requestBody: UpsertCompanyRequestBody = {
           keys: { [keyName]: keyValue },
           ...(name ? { name } : {}),
           ...(traits ? { traits } : {}),
-        });
+        };
+
+        const companyResponse = await getSchematicClient().companies.upsertCompany(requestBody);
 
         const company = companyResponse.data;
-        return textResponse(`Created company: ${company.name || keyValue} (${company.id})`);
+        return textResponse(`Upserted company: ${company.name || keyValue} (${company.id})`);
       }
 
       case "create_plan_with_billing": {
