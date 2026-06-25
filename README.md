@@ -85,6 +85,23 @@ The server needs a Schematic **secret** API key (not the publishable key). It ch
 
 You can find your secret API key in the [Schematic dashboard](https://app.schematichq.com).
 
+### Custom API base URL (optional)
+
+By default the server targets the production Schematic API. To point it at a local or non-production API, set `SCHEMATIC_API_URL`:
+
+```json
+{
+  "command": "npx",
+  "args": ["@schematichq/schematic-mcp"],
+  "env": {
+    "SCHEMATIC_API_KEY": "your-secret-api-key-here",
+    "SCHEMATIC_API_URL": "http://localhost:8080"
+  }
+}
+```
+
+When unset, the SDK's production default is used.
+
 ## Tools
 
 ### Company Lookup
@@ -92,6 +109,7 @@ You can find your secret API key in the [Schematic dashboard](https://app.schema
 | Tool | Description |
 |------|-------------|
 | `get_company` | Look up a company by ID, name, Stripe customer ID, or [custom key](https://docs.schematichq.com/developer_resources/key_management). Returns details, plan, trial status, and links. |
+| `create_company` | Create (upsert) a company identified by a [key](https://docs.schematichq.com/developer_resources/key_management) (`keyName`/`keyValue`), with an optional `name` and `traits`. Updates the company if the key already exists. |
 | `get_company_plan` | Get the plan a company is currently on. |
 | `get_company_trial_info` | Check if a company is on a trial and when it ends. |
 | `count_companies_on_plan` | Count how many companies are on a specific plan. |

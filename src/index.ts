@@ -20,10 +20,11 @@ type CompanyDetailResponseData = Schematic.CompanyDetailResponseData;
 type FeatureDetailResponseData = Schematic.FeatureDetailResponseData;
 type CompanyOverrideResponseData = Schematic.CompanyOverrideResponseData;
 type CreateCompanyOverrideRequestBody = Schematic.CreateCompanyOverrideRequestBody;
+type UpsertCompanyRequestBody = Schematic.UpsertCompanyRequestBody;
 type CreatePlanEntitlementRequestBody = Schematic.CreatePlanEntitlementRequestBody;
 type CreatePlanBundleRequestBody = Schematic.CreatePlanBundleRequestBody;
 
-import { getApiKey } from "./config.js";
+import { getApiKey, getApiUrl } from "./config.js";
 import { resolveCompany, resolveFeature, resolvePlan, resolveAddon, fetchAll, getSchematicCompanyUrl, getStripeCustomerUrl } from "./helpers.js";
 
 // Initialize Schematic client lazily
@@ -38,7 +39,10 @@ function getSchematicClient(): SchematicClient {
       get: () => `schematic-mcp/${mcpVersion} tool/${currentToolName}`,
       enumerable: true,
     });
-    schematicClient = new SchematicClient({ apiKey, headers });
+    const apiUrl = getApiUrl();
+    schematicClient = new SchematicClient(
+      apiUrl ? { apiKey, headers, basePath: apiUrl } : { apiKey, headers },
+    );
   }
   return schematicClient;
 }
@@ -105,13 +109,23 @@ function arrayArg<T>(args: Record<string, unknown> | undefined, key: string): T[
   return val as T[];
 }
 
+// Helper to safely extract an object (map) argument from tool args
+function objectArg(args: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  const val = args?.[key];
+  if (val === undefined || val === null) return undefined;
+  if (typeof val !== "object" || Array.isArray(val)) {
+    throw new Error(`Expected "${key}" to be an object, got ${Array.isArray(val) ? "array" : typeof val}`);
+  }
+  return val as Record<string, unknown>;
+}
+
 // Helper to generate a flag key from a feature name
 function generateFlagKey(name: string): string {
-  // Convert to lowercase and replace spaces/special chars with underscores
+  // Convert to lowercase and replace spaces/special chars with hyphens
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 // Register tools
@@ -204,6 +218,33 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Schematic company ID",
             },
           },
+        },
+      },
+      {
+        name: "create_company",
+        description:
+          "Create (upsert) a company, identified by a key. Companies are looked up by one or more keys (e.g. an 'id' key) — see Key Management. Optionally set a display name and traits. If a company with the given key already exists, it is updated rather than duplicated.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            keyName: {
+              type: "string",
+              description: "The key name used to identify the company (e.g. 'id'). Key names are configured in Schematic.",
+            },
+            keyValue: {
+              type: "string",
+              description: "The value for keyName (e.g. 'demo-co').",
+            },
+            name: {
+              type: "string",
+              description: "Optional display name for the company.",
+            },
+            traits: {
+              type: "object",
+              description: "Optional map of trait names to values (e.g. { \"plan_tier\": \"pro\" }).",
+            },
+          },
+          required: ["keyName", "keyValue"],
         },
       },
       // Company Overrides
@@ -977,6 +1018,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const plan = planResponse.data;
 
         return textResponse(`Created plan: ${plan.name} (${plan.id})`);
+      }
+
+      case "create_company": {
+        const keyName = requiredStringArg(args, "keyName");
+        const keyValue = requiredStringArg(args, "keyValue");
+        const name = stringArg(args, "name");
+        const traits = objectArg(args, "traits");
+
+        const requestBody: UpsertCompanyRequestBody = {
+          keys: { [keyName]: keyValue },
+          ...(name ? { name } : {}),
+          ...(traits ? { traits } : {}),
+        };
+
+        const companyResponse = await getSchematicClient().companies.upsertCompany(requestBody);
+
+        const company = companyResponse.data;
+        return textResponse(`Upserted company: ${company.name || keyValue} (${company.id})`);
       }
 
       case "create_plan_with_billing": {

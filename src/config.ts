@@ -30,3 +30,10 @@ export function getApiKey(): string {
   );
 }
 
+// getApiUrl returns an optional override for the Schematic API base URL
+// (e.g. http://localhost:8080 for a local API). Returns undefined when unset,
+// in which case the SDK default (production) is used.
+export function getApiUrl(): string | undefined {
+  return process.env.SCHEMATIC_API_URL || undefined;
+}
+
