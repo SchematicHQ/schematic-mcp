@@ -47,7 +47,7 @@
     "@schematichq/schematic-typescript-node": "^1.4.6"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.0.0",
     "dotenv": "^17.4.2",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3"
