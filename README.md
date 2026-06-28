@@ -95,7 +95,9 @@ You can find your secret API key in the [Schematic dashboard](https://app.schema
 | `get_company_plan` | Get the plan a company is currently on. |
 | `get_company_trial_info` | Check if a company is on a trial and when it ends. |
 | `count_companies_on_plan` | Count how many companies are on a specific plan. |
+| `count_companies_on_addon` | Count how many companies have a specific add-on. |
 | `link_stripe_to_schematic` | Find the Schematic company for a Stripe customer ID, or vice versa. |
+| `get_manage_subscription_url` | Get the Schematic app URL for managing a company's subscription, checkout, and plan changes. Those flows are intentionally not exposed as MCP mutations. |
 
 ### Company Overrides
 
@@ -110,8 +112,20 @@ You can find your secret API key in the [Schematic dashboard](https://app.schema
 | Tool | Description |
 |------|-------------|
 | `list_plans` | List all plans. |
-| `create_plan` | Create a new plan. |
-| `add_entitlements_to_plan` | Add feature entitlements to a plan. Auto-detects feature type and sets appropriate value types. |
+| `create_plan` | Create a new plan. By default also creates a Stripe-linked billing product (pass `skipBilling: true` to skip). Gates creation behind a confirmation step — first call returns a summary, re-invoke with `confirmed: true` to execute. Plan is created as a draft version; use `get_publish_plan_url` to publish in the app. |
+| `add_entitlements_to_plan` | Add feature entitlements to the plan's draft version. Auto-detects feature type and sets appropriate value types. Use `get_publish_plan_url` to publish. |
+| `get_plan_entitlements` | List all features/entitlements included in a plan. |
+| `get_publish_plan_url` | Get the Schematic app URL where a plan's draft version is published. Publishing is intentionally not exposed as an MCP mutation. |
+
+### Add-on Management
+
+| Tool | Description |
+|------|-------------|
+| `list_addons` | List all add-ons. |
+| `create_addon` | Create a new add-on. Add-on is created as a draft version; use `get_publish_addon_url` to publish in the app. |
+| `add_entitlements_to_addon` | Add feature entitlements to the add-on's draft version. Use `get_publish_addon_url` to publish. |
+| `get_addon_entitlements` | List all features/entitlements included in an add-on. |
+| `get_publish_addon_url` | Get the Schematic app URL where an add-on's draft version is published. Publishing is intentionally not exposed as an MCP mutation. |
 
 ### Feature Management
 
@@ -119,6 +133,14 @@ You can find your secret API key in the [Schematic dashboard](https://app.schema
 |------|-------------|
 | `list_features` | List all features. |
 | `create_feature` | Create a new feature flag. Supports boolean (on/off), event-based (metered), and trait-based types. Automatically creates an associated flag. |
+| `get_feature_usage` | Get feature usage data for a company (access status, usage vs allocation, entitlement source). |
+
+### Usage Analytics
+
+| Tool | Description |
+|------|-------------|
+| `find_companies_near_limit` | Find companies at or above a usage threshold for a specific metered feature. |
+| `check_companies_usage` | Check usage for a list of companies and surface those at or above a threshold across any metered feature. |
 
 ## Example Prompts
 

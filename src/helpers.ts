@@ -205,6 +205,24 @@ export function getSchematicCompanyUrl(companyId: string): string {
 }
 
 /**
+ * Generates a SchematicHQ URL for a company's entitlements / subscription management page.
+ * Used to redirect callers to the app for checkout, plan changes, and subscription management,
+ * which are intentionally not exposed as MCP mutations.
+ */
+export function getSchematicCompanyEntitlementsUrl(companyId: string): string {
+  return `https://app.schematichq.com/env/companies/${companyId}/entitlements`;
+}
+
+/**
+ * Generates a SchematicHQ URL for a plan or add-on detail page. The app resolves
+ * the current draft version automatically on this page. Works for both plans and
+ * add-ons since add-ons are stored as plans with `planType: "add_on"`.
+ */
+export function getSchematicPlanUrl(planId: string): string {
+  return `https://app.schematichq.com/env/plans/${planId}`;
+}
+
+/**
  * Generates a Stripe dashboard URL for a customer
  */
 export function getStripeCustomerUrl(stripeCustomerId: string): string {
