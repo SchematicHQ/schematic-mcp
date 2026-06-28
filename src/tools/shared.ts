@@ -47,6 +47,25 @@ export function formatOverrideValue(override: CompanyOverrideResponseData): stri
   return "unknown";
 }
 
+export function formatEntitlementValue(value: {
+  valueType?: string;
+  valueBool?: boolean;
+  valueNumeric?: number;
+}): string {
+  switch (value.valueType) {
+    case "unlimited":
+      return "unlimited";
+    case "boolean":
+      return value.valueBool ? "on" : "off";
+    case "numeric":
+      return value.valueNumeric !== undefined ? String(value.valueNumeric) : "(numeric, no value)";
+    case "trait":
+      return "trait-based";
+    default:
+      return `(${value.valueType ?? "unknown type"})`;
+  }
+}
+
 export function stringArg(
   args: Record<string, unknown> | undefined,
   key: string

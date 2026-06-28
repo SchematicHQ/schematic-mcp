@@ -10,6 +10,7 @@ import {
   ToolModule,
   arrayArg,
   booleanArg,
+  formatEntitlementValue,
   requiredStringArg,
   stringArg,
   textResponse,
@@ -113,7 +114,7 @@ export const plansModule: ToolModule = {
     {
       name: "get_plan_entitlements",
       description:
-        "Get all features/entitlements included in a plan. Shows what features a plan grants and their values (on/off for boolean, numeric limits for metered, unlimited).",
+        "Get the entitlements currently published on a plan. Shows what features the plan grants live customers and their values (on/off for boolean, numeric limits for metered, unlimited, trait-based). Does NOT reflect pending changes in the draft version — those only appear after the plan is published in the Schematic app.",
       inputSchema: {
         type: "object",
         properties: {
@@ -295,54 +296,69 @@ export const plansModule: ToolModule = {
         throw new Error("At least one entitlement is required");
       }
 
-      const results: string[] = [];
+      const successes: string[] = [];
+      const failures: string[] = [];
 
       for (const entitlement of entitlements) {
-        const feature = await resolveFeature(getSchematicClient(), {
-          featureId: entitlement.featureId,
-          featureName: entitlement.featureName,
-        });
-        const featureType = feature.featureType;
-        const featureDisplay = feature.name || feature.id;
+        let featureDisplay = entitlement.featureName || entitlement.featureId || "(unknown feature)";
+        try {
+          const feature = await resolveFeature(getSchematicClient(), {
+            featureId: entitlement.featureId,
+            featureName: entitlement.featureName,
+          });
+          const featureType = feature.featureType;
+          featureDisplay = feature.name || feature.id;
 
-        const entitlementBody: CreatePlanEntitlementRequestBody = {
-          planId: plan.id,
-          featureId: feature.id,
-          valueType: "boolean",
-        };
+          const entitlementBody: CreatePlanEntitlementRequestBody = {
+            planId: plan.id,
+            featureId: feature.id,
+            valueType: "boolean",
+          };
 
-        if (featureType === "boolean") {
-          const value = entitlement.value || "on";
-          entitlementBody.valueType = "boolean";
-          entitlementBody.valueBool = value === "on" || value === "true";
-        } else if (featureType === "event" || featureType === "trait") {
-          if (!entitlement.value) {
-            throw new Error(
-              `Value is required for ${featureType}-based feature "${featureDisplay}". Please provide a number (e.g., "10", "100") or "unlimited".`
-            );
-          }
+          if (featureType === "boolean") {
+            const value = entitlement.value || "on";
+            entitlementBody.valueType = "boolean";
+            entitlementBody.valueBool = value === "on" || value === "true";
+          } else if (featureType === "event" || featureType === "trait") {
+            if (!entitlement.value) {
+              throw new Error(
+                `Value is required for ${featureType}-based feature "${featureDisplay}". Please provide a number (e.g., "10", "100") or "unlimited".`
+              );
+            }
 
-          if (entitlement.value === "unlimited") {
-            entitlementBody.valueType = "unlimited";
-          } else if (!isNaN(Number(entitlement.value))) {
-            entitlementBody.valueType = "numeric";
-            entitlementBody.valueNumeric = Number(entitlement.value);
+            if (entitlement.value === "unlimited") {
+              entitlementBody.valueType = "unlimited";
+            } else if (!isNaN(Number(entitlement.value))) {
+              entitlementBody.valueType = "numeric";
+              entitlementBody.valueNumeric = Number(entitlement.value);
+            } else {
+              throw new Error(
+                `Invalid value "${entitlement.value}" for ${featureType}-based feature "${featureDisplay}". Must be a number or "unlimited".`
+              );
+            }
           } else {
-            throw new Error(
-              `Invalid value "${entitlement.value}" for ${featureType}-based feature "${featureDisplay}". Must be a number or "unlimited".`
-            );
+            throw new Error(`Unsupported feature type "${featureType}" for feature "${featureDisplay}".`);
           }
-        } else {
-          throw new Error(`Unsupported feature type "${featureType}" for feature "${featureDisplay}".`);
+
+          await getSchematicClient().entitlements.createPlanEntitlement(entitlementBody);
+
+          const valueDisplay = entitlement.value || (featureType === "boolean" ? "on" : "not provided");
+          successes.push(`Added ${featureType} entitlement for feature ${featureDisplay}: ${valueDisplay}`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          failures.push(`Failed to add entitlement for feature ${featureDisplay}: ${message}`);
         }
-
-        await getSchematicClient().entitlements.createPlanEntitlement(entitlementBody);
-
-        const valueDisplay = entitlement.value || (featureType === "boolean" ? "on" : "not provided");
-        results.push(`Added ${featureType} entitlement for feature ${featureDisplay}: ${valueDisplay}`);
       }
 
-      results.push(``, finalizeInAppMessage(plan.id));
+      const results: string[] = [];
+      if (successes.length > 0) results.push(...successes);
+      if (failures.length > 0) {
+        if (results.length > 0) results.push("");
+        results.push(...failures);
+      }
+      if (successes.length > 0) {
+        results.push("", finalizeInAppMessage(plan.id));
+      }
 
       return textResponse(results.join("\n"));
     },
@@ -369,17 +385,7 @@ export const plansModule: ToolModule = {
       for (const entitlement of entitlements) {
         const featureName = entitlement.feature?.name || entitlement.featureId;
         const featureType = entitlement.feature?.featureType || "unknown";
-        let valueDisplay: string;
-
-        if (entitlement.valueType === "unlimited") {
-          valueDisplay = "unlimited";
-        } else if (entitlement.valueBool !== undefined) {
-          valueDisplay = entitlement.valueBool ? "on" : "off";
-        } else if (entitlement.valueNumeric !== undefined) {
-          valueDisplay = String(entitlement.valueNumeric);
-        } else {
-          valueDisplay = "unknown";
-        }
+        const valueDisplay = formatEntitlementValue(entitlement);
 
         results.push(`  - ${featureName} (${featureType}): ${valueDisplay}`);
       }

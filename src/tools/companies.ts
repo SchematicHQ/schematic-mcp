@@ -178,6 +178,19 @@ export const companiesModule: ToolModule = {
         },
       },
     },
+    {
+      name: "create_custom_plan",
+      description:
+        "Get the Schematic app URL where a custom plan can be created for a company. Custom plan creation is intentionally not exposed as an MCP mutation — open the returned URL and use the 3-dot menu in the top-left next to the company name to create the custom plan in the app.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          companyId: { type: "string", description: "Schematic company ID (e.g., comp_xxx)" },
+          companyName: { type: "string", description: "Company name" },
+          stripeCustomerId: { type: "string", description: "Stripe customer ID" },
+        },
+      },
+    },
   ],
 
   handlers: {
@@ -482,6 +495,24 @@ export const companiesModule: ToolModule = {
       const lines = [
         `Subscription management for ${company.name || company.id} must be done in the Schematic app.`,
         `Checkout, plan changes, and add-on changes for this company are not supported via MCP — use the app to make these changes.`,
+        ``,
+        `URL: ${url}`,
+      ];
+
+      return textResponse(lines.join("\n"));
+    },
+
+    async create_custom_plan(args) {
+      const company = await resolveCompany(getSchematicClient(), {
+        companyId: stringArg(args, "companyId"),
+        companyName: stringArg(args, "companyName"),
+        stripeCustomerId: stringArg(args, "stripeCustomerId"),
+      });
+
+      const url = getSchematicCompanyUrl(company.id);
+      const lines = [
+        `Creating a custom plan for ${company.name || company.id} must be done in the Schematic app.`,
+        `Open the company page below, then click the 3-dot menu in the top-left next to the company name to create the custom plan.`,
         ``,
         `URL: ${url}`,
       ];

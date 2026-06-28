@@ -9,6 +9,7 @@ import { getSchematicClient } from "../client.js";
 import {
   ToolModule,
   arrayArg,
+  formatEntitlementValue,
   requiredStringArg,
   stringArg,
   textResponse,
@@ -50,7 +51,7 @@ export const addonsModule: ToolModule = {
     {
       name: "add_entitlements_to_addon",
       description:
-        "Add entitlements to an add-on. The feature type will be automatically determined by querying the feature. For boolean features, defaults to 'on' if no value is provided. For event-based or trait-based features, a value (number or 'unlimited') is required. Changes are written to the add-on's draft version — publishing must be done in the Schematic app (use get_publish_addon_url to get the link).",
+        "Add entitlements to an add-on. The feature type will be automatically determined by querying the feature. For boolean features, defaults to 'on' if no value is provided. For trait-based features, a value (number or 'unlimited') is required. Event-based features are NOT supported as add-on entitlements by the API and will be skipped with an error. Changes are written to the add-on's draft version — publishing must be done in the Schematic app (use get_publish_addon_url to get the link).",
       inputSchema: {
         type: "object",
         properties: {
@@ -80,7 +81,7 @@ export const addonsModule: ToolModule = {
     {
       name: "get_addon_entitlements",
       description:
-        "Get all features/entitlements included in an add-on. Shows what features an add-on grants and their values.",
+        "Get the entitlements currently published on an add-on. Shows what features the add-on grants live customers and their values. Does NOT reflect pending changes in the draft version — those only appear after the add-on is published in the Schematic app.",
       inputSchema: {
         type: "object",
         properties: {
@@ -166,54 +167,75 @@ export const addonsModule: ToolModule = {
         throw new Error("At least one entitlement is required");
       }
 
-      const results: string[] = [];
+      const successes: string[] = [];
+      const failures: string[] = [];
 
       for (const entitlement of entitlements) {
-        const feature = await resolveFeature(getSchematicClient(), {
-          featureId: entitlement.featureId,
-          featureName: entitlement.featureName,
-        });
-        const featureType = feature.featureType;
-        const featureDisplay = feature.name || feature.id;
+        let featureDisplay = entitlement.featureName || entitlement.featureId || "(unknown feature)";
+        try {
+          const feature = await resolveFeature(getSchematicClient(), {
+            featureId: entitlement.featureId,
+            featureName: entitlement.featureName,
+          });
+          const featureType = feature.featureType;
+          featureDisplay = feature.name || feature.id;
 
-        const entitlementBody: CreatePlanEntitlementRequestBody = {
-          planId: addon.id,
-          featureId: feature.id,
-          valueType: "boolean",
-        };
-
-        if (featureType === "boolean") {
-          const value = entitlement.value || "on";
-          entitlementBody.valueType = "boolean";
-          entitlementBody.valueBool = value === "on" || value === "true";
-        } else if (featureType === "event" || featureType === "trait") {
-          if (!entitlement.value) {
+          if (featureType === "event") {
             throw new Error(
-              `Value is required for ${featureType}-based feature "${featureDisplay}". Please provide a number (e.g., "10", "100") or "unlimited".`
+              `Event-based features are not supported as add-on entitlements by the Schematic API. "${featureDisplay}" is an event feature.`
             );
           }
 
-          if (entitlement.value === "unlimited") {
-            entitlementBody.valueType = "unlimited";
-          } else if (!isNaN(Number(entitlement.value))) {
-            entitlementBody.valueType = "numeric";
-            entitlementBody.valueNumeric = Number(entitlement.value);
+          const entitlementBody: CreatePlanEntitlementRequestBody = {
+            planId: addon.id,
+            featureId: feature.id,
+            valueType: "boolean",
+          };
+
+          if (featureType === "boolean") {
+            const value = entitlement.value || "on";
+            entitlementBody.valueType = "boolean";
+            entitlementBody.valueBool = value === "on" || value === "true";
+          } else if (featureType === "trait") {
+            if (!entitlement.value) {
+              throw new Error(
+                `Value is required for trait-based feature "${featureDisplay}". Please provide a number (e.g., "10", "100") or "unlimited".`
+              );
+            }
+
+            if (entitlement.value === "unlimited") {
+              entitlementBody.valueType = "unlimited";
+            } else if (!isNaN(Number(entitlement.value))) {
+              entitlementBody.valueType = "numeric";
+              entitlementBody.valueNumeric = Number(entitlement.value);
+            } else {
+              throw new Error(
+                `Invalid value "${entitlement.value}" for trait-based feature "${featureDisplay}". Must be a number or "unlimited".`
+              );
+            }
           } else {
-            throw new Error(
-              `Invalid value "${entitlement.value}" for ${featureType}-based feature "${featureDisplay}". Must be a number or "unlimited".`
-            );
+            throw new Error(`Unsupported feature type "${featureType}" for feature "${featureDisplay}".`);
           }
-        } else {
-          throw new Error(`Unsupported feature type "${featureType}" for feature "${featureDisplay}".`);
+
+          await getSchematicClient().entitlements.createPlanEntitlement(entitlementBody);
+
+          const valueDisplay = entitlement.value || (featureType === "boolean" ? "on" : "not provided");
+          successes.push(`Added ${featureType} entitlement for feature ${featureDisplay}: ${valueDisplay}`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          failures.push(`Failed to add entitlement for feature ${featureDisplay}: ${message}`);
         }
-
-        await getSchematicClient().entitlements.createPlanEntitlement(entitlementBody);
-
-        const valueDisplay = entitlement.value || (featureType === "boolean" ? "on" : "not provided");
-        results.push(`Added ${featureType} entitlement for feature ${featureDisplay}: ${valueDisplay}`);
       }
 
-      results.push(``, finalizeInAppMessage(addon.id));
+      const results: string[] = [];
+      if (successes.length > 0) results.push(...successes);
+      if (failures.length > 0) {
+        if (results.length > 0) results.push("");
+        results.push(...failures);
+      }
+      if (successes.length > 0) {
+        results.push("", finalizeInAppMessage(addon.id));
+      }
 
       return textResponse(results.join("\n"));
     },
@@ -240,17 +262,7 @@ export const addonsModule: ToolModule = {
       for (const entitlement of entitlements) {
         const featureName = entitlement.feature?.name || entitlement.featureId;
         const featureType = entitlement.feature?.featureType || "unknown";
-        let valueDisplay: string;
-
-        if (entitlement.valueType === "unlimited") {
-          valueDisplay = "unlimited";
-        } else if (entitlement.valueBool !== undefined) {
-          valueDisplay = entitlement.valueBool ? "on" : "off";
-        } else if (entitlement.valueNumeric !== undefined) {
-          valueDisplay = String(entitlement.valueNumeric);
-        } else {
-          valueDisplay = "unknown";
-        }
+        const valueDisplay = formatEntitlementValue(entitlement);
 
         results.push(`  - ${featureName} (${featureType}): ${valueDisplay}`);
       }
