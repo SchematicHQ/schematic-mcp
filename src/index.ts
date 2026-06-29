@@ -72,6 +72,54 @@ function textResponse(text: string) {
   };
 }
 
+// A rule with no conditions and no condition groups matches every company.
+function isUnconditionalRule(rule: Schematic.RuleDetailResponseData): boolean {
+  return (
+    (rule.conditions?.length ?? 0) === 0 &&
+    (rule.conditionGroups?.length ?? 0) === 0
+  );
+}
+
+// Classify how a flag resolves across all companies. "always-on"/"always-off"
+// mean the flag returns the same value for everyone (so a code-level check of it
+// is redundant); "targeted" means the result depends on plan/company/conditions.
+function summarizeFlagTargeting(flag: Schematic.FlagDetailResponseData): {
+  verdict: "always-on" | "always-off" | "targeted";
+  detail: string;
+} {
+  const rules = flag.rules ?? [];
+
+  // A global override sits at the top of priority and applies to everyone, so an
+  // unconditional one is the definitive signal that a flag is on/off for all.
+  const globalOverride = rules.find(
+    (r) => r.ruleType === "global_override" && isUnconditionalRule(r)
+  );
+  if (globalOverride) {
+    return globalOverride.value
+      ? { verdict: "always-on", detail: "unconditional global override = true" }
+      : { verdict: "always-off", detail: "unconditional global override = false" };
+  }
+
+  // Rules other than the default fallthrough are what make a flag company-specific.
+  const targetingRules = rules.filter(
+    (r) => r.ruleType !== "default" && r.ruleType !== "global_override"
+  );
+  if (targetingRules.length === 0) {
+    return flag.defaultValue
+      ? { verdict: "always-on", detail: "no targeting rules, default = true" }
+      : { verdict: "always-off", detail: "no targeting rules, default = false" };
+  }
+
+  const byType = new Map<string, number>();
+  for (const r of targetingRules) {
+    byType.set(r.ruleType, (byType.get(r.ruleType) ?? 0) + 1);
+  }
+  const breakdown = [...byType.entries()]
+    .map(([t, n]) => `${n} ${t}`)
+    .join(", ");
+  return { verdict: "targeted", detail: `default = ${flag.defaultValue}; ${breakdown}` };
+}
+
 // Helper to format an override value for display
 function formatOverrideValue(override: CompanyOverrideResponseData): string {
   if (override.valueType === "unlimited") return "unlimited";
@@ -503,6 +551,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {},
+        },
+      },
+      // Flag Management
+      {
+        name: "list_flags",
+        description:
+          "List all feature flags in your Schematic account with their targeting summary. For each flag, reports its key, default value, linked feature (if any), and whether it currently resolves to always-on, always-off, or targeted (gated by rules). Use this to audit which flags are always-on (and so no longer need to be checked in code) or unused (and so can be deleted from Schematic).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description:
+                "Optional: filter flags by a search string matched against key/name",
+            },
+          },
+        },
+      },
+      {
+        name: "get_flag",
+        description:
+          "Get full targeting detail for a single flag by its key: default value, every rule (type, value, priority, condition count), last-checked time, and the computed always-on / always-off / targeted determination. Use this to inspect why a flag resolves the way it does.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            key: {
+              type: "string",
+              description: 'The flag key (dot-delimited, e.g. "billing.credits")',
+            },
+          },
+          required: ["key"],
         },
       },
       {
@@ -1329,6 +1408,71 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           .join("\n");
 
         return textResponse(`Features:\n${featureList}`);
+      }
+
+      case "list_flags": {
+        const query = stringArg(args, "query");
+        const flags = await fetchAll(
+          (params) => getSchematicClient().features.listFlags(params),
+          query ? { q: query } : {}
+        );
+
+        if (flags.length === 0) {
+          return textResponse("No flags found.");
+        }
+
+        const lines = flags
+          .slice()
+          .sort((a, b) => a.key.localeCompare(b.key))
+          .map((flag) => {
+            const { verdict, detail } = summarizeFlagTargeting(flag);
+            const feature = flag.feature?.name ?? flag.featureId ?? "no feature";
+            return `- ${flag.key} [${verdict}] (${detail}) - feature: ${feature}`;
+          });
+
+        return textResponse(
+          `${flags.length} flag${flags.length !== 1 ? "s" : ""}:\n${lines.join("\n")}\n\n` +
+            `Legend: always-on = resolves true for every company (a code-level check is redundant); ` +
+            `always-off = resolves false for everyone; targeted = depends on plan/company/conditions. ` +
+            `Flags with "no feature" and no targeting rules are candidates for deletion from Schematic.`
+        );
+      }
+
+      case "get_flag": {
+        const key = requiredStringArg(args, "key");
+        const flags = await fetchAll(
+          (params) => getSchematicClient().features.listFlags(params),
+          { q: key }
+        );
+        const flag = flags.find((f) => f.key === key);
+        if (!flag) {
+          return textResponse(`No flag found with key "${key}".`);
+        }
+
+        const { verdict, detail } = summarizeFlagTargeting(flag);
+        const ruleLines = (flag.rules ?? [])
+          .slice()
+          .sort((a, b) => b.priority - a.priority)
+          .map((r) => {
+            const conds =
+              (r.conditions?.length ?? 0) + (r.conditionGroups?.length ?? 0);
+            return `  - [p${r.priority}] ${r.ruleType} => ${r.value} (${conds} condition${conds !== 1 ? "s" : ""})${r.name ? ` "${r.name}"` : ""}`;
+          });
+
+        const info = [
+          `Flag: ${flag.key} (${flag.id})`,
+          `Name: ${flag.name}`,
+          `Type: ${flag.flagType}`,
+          `Default value: ${flag.defaultValue}`,
+          `Feature: ${flag.feature?.name ?? flag.featureId ?? "none"}`,
+          `Last checked: ${flag.lastCheckedAt ? flag.lastCheckedAt.toISOString() : "never"}`,
+          `Verdict: ${verdict} (${detail})`,
+          ruleLines.length
+            ? `Rules (highest priority first):\n${ruleLines.join("\n")}`
+            : "Rules: none",
+        ];
+
+        return textResponse(info.join("\n"));
       }
 
       case "create_feature": {

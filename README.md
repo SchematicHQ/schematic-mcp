@@ -138,6 +138,13 @@ When unset, the SDK's production default is used.
 | `list_features` | List all features. |
 | `create_feature` | Create a new feature flag. Supports boolean (on/off), event-based (metered), and trait-based types. Automatically creates an associated flag. |
 
+### Flag Management
+
+| Tool | Description |
+|------|-------------|
+| `list_flags` | List all flags with a targeting summary — for each flag: key, default value, linked feature, and whether it resolves to always-on, always-off, or targeted. Useful for auditing always-on flags (redundant to check in code) or unused flags (candidates for deletion). |
+| `get_flag` | Get full targeting detail for one flag by key: default value, every rule (type, value, priority, condition count), last-checked time, and the always-on / always-off / targeted determination. |
+
 ## Example Prompts
 
 Once configured, try asking your AI assistant:
@@ -148,6 +155,8 @@ Once configured, try asking your AI assistant:
 - "Set an override for Acme Corp to have unlimited API calls"
 - "How many companies are on the Pro plan?"
 - "Find the Schematic company linked to Stripe customer cus_abc123"
+- "List all flags and tell me which ones are always-on"
+- "Show me the targeting rules for the billing.credits flag"
 
 ## Development
 
