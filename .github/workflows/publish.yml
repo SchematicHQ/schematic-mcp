@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7.0.0
       - uses: actions/setup-node@v6.4.0
         with:
-          node-version: 20
+          node-version: 24
       - run: yarn install --frozen-lockfile
       - run: yarn build
       - run: yarn test
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7.0.0
       - uses: actions/setup-node@v6.4.0
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
       # Trusted Publishing (OIDC) needs npm >= 11.5.1; the version bundled with
       # node 20 is too old. No NPM_TOKEN is used — auth comes from the GitHub
