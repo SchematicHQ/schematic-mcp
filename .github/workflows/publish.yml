@@ -36,16 +36,16 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      # Trusted Publishing (OIDC) needs npm >= 11.5.1; the version bundled with
-      # node 20 is too old. No NPM_TOKEN is used — auth comes from the GitHub
-      # OIDC token exchanged for a short-lived npm publish token at publish time.
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; upgrade to be safe.
+      # No NPM_TOKEN is used — auth comes from the GitHub OIDC token exchanged
+      # for a short-lived npm publish token at publish time.
       - name: Upgrade npm for Trusted Publishing
         run: npm install -g npm@latest
       - run: yarn install --frozen-lockfile
       - name: Set version from tag
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          npm version $VERSION --no-git-tag-version
+          npm version $VERSION --no-git-tag-version --allow-same-version
           echo "export const version = \"$VERSION\";" > src/version.ts
       - name: Update server.json version
         run: |
