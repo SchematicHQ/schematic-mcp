@@ -32,12 +32,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/schematichq/schematic-mcp.git"
+    "url": "https://github.com/SchematicHQ/schematic-mcp.git"
   },
   "mcpName": "io.github.SchematicHQ/schematic-mcp",
-  "homepage": "https://github.com/schematichq/schematic-mcp#readme",
+  "homepage": "https://github.com/SchematicHQ/schematic-mcp#readme",
   "bugs": {
-    "url": "https://github.com/schematichq/schematic-mcp/issues"
+    "url": "https://github.com/SchematicHQ/schematic-mcp/issues"
   },
   "engines": {
     "node": ">=18"
