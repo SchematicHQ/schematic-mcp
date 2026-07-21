@@ -161,9 +161,9 @@
     zod-to-json-schema "^3.25.1"
 
 "@schematichq/schematic-typescript-node@^1.4.6":
-  version "1.5.3"
-  resolved "https://registry.yarnpkg.com/@schematichq/schematic-typescript-node/-/schematic-typescript-node-1.5.3.tgz#65b3a464eee6631f60378f3df9bd67587efc21be"
-  integrity sha512-7sHfaGBwxFd5YZVCS9t7gh83bPrjsKV6/NoZMohn/lVsTnQJG7vUN2jBQtVzQi+q+GDnAf8Ks5JOCcBr4R2M2Q==
+  version "1.5.4"
+  resolved "https://registry.yarnpkg.com/@schematichq/schematic-typescript-node/-/schematic-typescript-node-1.5.4.tgz#de40ffc0dc9018aa77900fda2332ad55eeff46e4"
+  integrity sha512-UgKHUCY6N1C5ZCjuaF3QmCJuPwqQExlxxwQbcl94z6uSqZRXihNnF1Fa/79DI1TSnmL26Dh+q0kfu4Ol91Y35g==
   dependencies:
     form-data "^4.0.4"
     formdata-node "^6.0.3"
