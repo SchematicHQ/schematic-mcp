@@ -1,7 +1,7 @@
 # Schematic MCP Server
 
 > [!WARNING]
-> **Deprecated.** Schematic now hosts an MCP server at `https://api.schematichq.com/mcp` — nothing to install, with OAuth sign-in or API-key auth. See the [Schematic MCP documentation](https://docs.schematichq.com/for-developers#model-context-protocol-mcp) to connect. This local stdio server still works but no longer receives new tools or fixes.
+> **Deprecated.** Schematic now hosts an MCP server at `https://api.schematichq.com/mcp` — see the [Schematic MCP documentation](https://docs.schematichq.com/for-developers#model-context-protocol-mcp) to connect. This local stdio server still works but no longer receives new tools or fixes.
 
 An [MCP](https://modelcontextprotocol.io/) server that connects AI assistants to [Schematic](https://schematichq.com) -- the platform for managing billing, plans, features, and entitlements.
 
