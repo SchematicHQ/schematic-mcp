@@ -1,5 +1,8 @@
 # Schematic MCP Server
 
+> [!WARNING]
+> **Deprecated.** Schematic now hosts an MCP server at `https://api.schematichq.com/mcp` — see the [Schematic MCP documentation](https://docs.schematichq.com/for-developers#model-context-protocol-mcp) to connect. This local stdio server still works but no longer receives new tools or fixes.
+
 An [MCP](https://modelcontextprotocol.io/) server that connects AI assistants to [Schematic](https://schematichq.com) -- the platform for managing billing, plans, features, and entitlements.
 
 Use this server to let Claude, Cursor, or any MCP-compatible client look up companies, manage plan entitlements, set overrides, create features, and more -- all through natural language.
