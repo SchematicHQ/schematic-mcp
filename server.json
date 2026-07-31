@@ -2,18 +2,24 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.SchematicHQ/schematic-mcp",
   "title": "Schematic",
-  "description": "Manage companies, plans, features, and billing through SchematicHQ",
+  "description": "Manage companies, plans, features, and billing through SchematicHQ. The local stdio package is deprecated — use the hosted server at https://api.schematichq.com/mcp instead.",
   "websiteUrl": "https://schematichq.com",
   "repository": {
     "url": "https://github.com/SchematicHQ/schematic-mcp",
     "source": "github"
   },
-  "version": "0.3.4",
+  "version": "0.4.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.schematichq.com/mcp"
+    }
+  ],
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@schematichq/schematic-mcp",
-      "version": "0.3.4",
+      "version": "0.4.0",
       "transport": {
         "type": "stdio"
       },
